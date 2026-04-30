@@ -1,0 +1,13 @@
+model/
+logs/
+finetuned_models/
+Miniconda3-latest-Linux-x86_64.sh
+results/
+log1
+log2
+__pycache__/
+cache/
+.claude/
+results_*.csv
+训练数据（旧）/
+训练数据（1）/
