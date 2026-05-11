@@ -1,4 +1,4 @@
-"""Stage 3: LLM 批量生成 entity groups 和 variants。"""
+"""Stage 3：批量调 LLM 生成 entity groups + variants。"""
 
 import json
 import random
@@ -75,7 +75,7 @@ GENERATE_USER_TEMPLATE = """请为实体匹配数据集生成合成训练数据�
 }}"""
 
 
-# 多样性提示词池：每批随机选一组，引导 LLM 生成不同领域的实体
+# 多样性提示词池：每批轮一个，让 LLM 别老盯着同一类实体
 DIVERSITY_HINTS = {
     "Geo": [
         "尽量多样化，覆盖不同类别和风格",
@@ -95,7 +95,7 @@ DIVERSITY_HINTS = {
     ],
 }
 
-# 通用回退提示
+# 词典里没有的就回退到这个
 _DEFAULT_HINTS = [
     "尽量多样化，覆盖不同类别和风格",
     "与之前的实体尽量不同，探索新的子领域",
@@ -103,25 +103,24 @@ _DEFAULT_HINTS = [
 
 
 def _get_dataset_instructions(analysis: dict) -> str:
-    """从分析结果中提取完整的 Markdown 生成规范。"""
     return analysis.get("dataset_instructions", "")
 
 
 def _build_example_fields(config: DatasetConfig) -> tuple:
-    """根据数据集配置构建 prompt 中的示例字段。"""
-    # canonical 字段示例
+    """根据 config 拼 prompt 里要塞进去的字段示例"""
+    # canonical
     canonical_parts = []
     for field_name in config.canonical_fields:
         canonical_parts.append(f'"{field_name}": "..."')
     canonical_example = ",\n            ".join(canonical_parts) + ","
 
-    # extra group fields
+    # 组级额外字段
     extra_parts = []
     for f in config.group_extra_fields:
         extra_parts.append(f'"{f}": "..."')
     extra_example = ",\n            ".join(extra_parts) + "," if extra_parts else ""
 
-    # variant 字段示例
+    # variant
     variant_fields = []
     if config.has_style:
         variant_fields.append('"style": "table_0"')
@@ -133,7 +132,6 @@ def _build_example_fields(config: DatasetConfig) -> tuple:
 
 
 def _get_diversity_hint(dataset_name: str, batch_idx: int) -> str:
-    """根据数据集名和批次号，轮转选择多样性提示。"""
     hints = DIVERSITY_HINTS.get(dataset_name, _DEFAULT_HINTS)
     return hints[batch_idx % len(hints)]
 
@@ -143,22 +141,12 @@ def generate_entity_groups(client, config: DatasetConfig,
                            batch_size: int,
                            existing_names: set = None,
                            max_workers: int = 4) -> list:
-    """分批调用 LLM 生成 entity groups（支持并发）。
-
-    Args:
-        client: LLM 客户端
-        config: 数据集配置
-        analysis: Stage 2 的分析结果
-        num_groups: 目标生成数量
-        batch_size: 每批生成数量
-        existing_names: 已有实体名，避免重复
-        max_workers: 并发线程数
-
-    Returns:
-        list[dict]: entity group 列表
     """
-    print(f"Stage 3: LLM 生成 {num_groups} 个 entity groups "
-          f"(每批 {batch_size}, 并发 {max_workers})...")
+    分批跑 LLM 出 entity groups，多线程并发。
+    用 lock 保护 existing_names 和 all_groups，去重在写回时做。
+    """
+    print(f"Stage 3: 生成 {num_groups} 个 entity groups "
+          f"(batch={batch_size}, workers={max_workers})...")
 
     existing = existing_names or set()
     all_groups = []
@@ -168,7 +156,6 @@ def generate_entity_groups(client, config: DatasetConfig,
     max_consecutive_failures = 30
 
     def _run_batch(bid):
-        """单个批次的生成任务。"""
         with lock:
             current_existing = set(existing)
         hint = _get_diversity_hint(config.name, bid)
@@ -183,7 +170,7 @@ def generate_entity_groups(client, config: DatasetConfig,
 
     while len(all_groups) < num_groups:
         if consecutive_failures >= max_consecutive_failures:
-            print(f"  警告: 连续 {consecutive_failures} 批未产生新实体，停止生成")
+            print(f"  连续 {consecutive_failures} 批没产出新实体，提前停")
             break
 
         remaining = num_groups - len(all_groups)
@@ -191,7 +178,7 @@ def generate_entity_groups(client, config: DatasetConfig,
         batch_ids = list(range(batch_idx, batch_idx + n_concurrent))
         batch_idx += n_concurrent
 
-        print(f"  并发提交 {n_concurrent} 个批次 "
+        print(f"  并发 {n_concurrent} 批 "
               f"(batch {batch_ids[0]}-{batch_ids[-1]}, "
               f"已有 {len(all_groups)}/{num_groups})...")
 
@@ -201,7 +188,7 @@ def generate_entity_groups(client, config: DatasetConfig,
             for future in as_completed(futures):
                 bid, batch, hint, error = future.result()
                 if error:
-                    print(f"    批次 {bid} 失败: {error}")
+                    print(f"    batch {bid} 失败: {error}")
                     continue
 
                 with lock:
@@ -212,7 +199,7 @@ def generate_entity_groups(client, config: DatasetConfig,
                             deduped.append(group)
                             existing.add(name_key)
                         else:
-                            print(f"    去重: 跳过重复实体 '{name_key}'")
+                            print(f"    去重: 丢掉 '{name_key}'")
 
                     for group in deduped:
                         if len(all_groups) >= num_groups:
@@ -225,25 +212,25 @@ def generate_entity_groups(client, config: DatasetConfig,
                     round_accepted += accepted
 
                 if accepted < total:
-                    print(f"    批次 {bid}: 去重后 {accepted}/{total} 个通过")
+                    print(f"    batch {bid}: 去重后 {accepted}/{total} 通过")
                 elif accepted > 0:
-                    print(f"    批次 {bid}: {accepted} 个通过")
+                    print(f"    batch {bid}: {accepted} 通过")
 
         if round_accepted > 0:
             consecutive_failures = 0
         else:
             consecutive_failures += n_concurrent
 
-    print(f"  生成完成: {len(all_groups)} 个 entity groups")
+    print(f"  共 {len(all_groups)} 个 entity groups")
     return all_groups
 
 
 def _get_canonical_key(group: dict, config: DatasetConfig) -> str:
-    """提取实体组的去重 key（所有 canonical 字段拼接，小写）。"""
+    """canonical 字段拼起来当去重 key，括号内容剥掉"""
     parts = []
     for field_name in config.canonical_fields:
         val = group.get(field_name, "").strip().lower()
-        # 去掉括号内容后再比较，如 "Cairo (Egypt)" → "cairo"
+        # 例：Cairo (Egypt) -> cairo
         import re
         val_clean = re.sub(r'\s*\(.*?\)\s*', '', val).strip()
         parts.append(val_clean)
@@ -253,11 +240,10 @@ def _get_canonical_key(group: dict, config: DatasetConfig) -> str:
 def _generate_batch(client, config: DatasetConfig,
                     analysis: dict, batch_size: int,
                     existing_names: set, diversity_hint: str) -> list:
-    """生成单个批次的 entity groups。"""
     dataset_instructions = _get_dataset_instructions(analysis)
     canonical_example, extra_example, variant_example = _build_example_fields(config)
 
-    # 已有实体名：随机抽样展示（最多 50 个），让 LLM 看到更多已有名称
+    # 已有实体名最多塞 50 个进 prompt，让 LLM 知道哪些不能再生
     if existing_names:
         sample_size = min(50, len(existing_names))
         sampled = random.sample(sorted(existing_names), sample_size)
@@ -265,7 +251,7 @@ def _generate_batch(client, config: DatasetConfig,
         if len(existing_names) > sample_size:
             existing_sample += f"\n...等共 {len(existing_names)} 个已有实体"
     else:
-        existing_sample = "（暂无，这是第一批）"
+        existing_sample = "（暂无，第一批）"
 
     user_prompt = GENERATE_USER_TEMPLATE.format(
         dataset_name=config.name,
@@ -289,10 +275,9 @@ def _generate_batch(client, config: DatasetConfig,
 
     result = client.chat_json(messages)
 
-    # 解析并验证
     entities = result.get("entities", [])
     if not entities:
-        print(f"    警告: LLM 返回空的 entities 列表")
+        print(f"    LLM 返回空 entities")
         return []
 
     valid_groups = []
@@ -302,12 +287,12 @@ def _generate_batch(client, config: DatasetConfig,
             valid_groups.append(group)
 
     if len(valid_groups) < len(entities):
-        print(f"    验证: {len(valid_groups)}/{len(entities)} 个实体通过验证")
+        print(f"    校验: {len(valid_groups)}/{len(entities)} 通过")
 
     return valid_groups
 
 
-# 占位符黑名单（全小写）
+# 黑名单：canonical 全等于其中之一的直接丢
 _PLACEHOLDER_NAMES = {
     # 通用
     "unknown", "n/a", "none", "null", "test", "example", "sample",
@@ -322,7 +307,7 @@ _PLACEHOLDER_NAMES = {
     "product name", "brand name", "item name", "shopee item",
 }
 
-# 占位符子串匹配（canonical 中包含这些子串即拒绝）
+# canonical 含其中之一的子串也丢
 _PLACEHOLDER_SUBSTRINGS = [
     "shopeeitem", "shopeeoriginal", "虚构",
     "fictional", "fictitious", "未知",
@@ -330,46 +315,42 @@ _PLACEHOLDER_SUBSTRINGS = [
 
 
 def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
-    """验证并规范化单个 entity group。
-
-    Returns:
-        规范化后的 dict，或 None（验证失败）
     """
-    # 检查必要的 canonical 字段
+    校验 + 规范化单个 entity group。
+    通不过返回 None，主调把它丢掉。
+    """
+    # canonical 字段：缺失就从第一个 variant 推一下
     group = {}
     for field_name in config.canonical_fields:
         val = entity.get(field_name, "")
         if not val:
-            # 尝试从第一个 variant 推断
             variants = entity.get("variants", [])
             source_col = config.canonical_fields[field_name]
             if variants and source_col in variants[0]:
                 val = variants[0][source_col]
         group[field_name] = str(val) if val else ""
 
-    # 拒绝占位符名称
+    # 占位符筛掉
     for field_name in config.canonical_fields:
         val = group.get(field_name, "").strip().lower()
-        # 精确匹配
         if val in _PLACEHOLDER_NAMES:
             return None
-        # 子串匹配
         for sub in _PLACEHOLDER_SUBSTRINGS:
             if sub in val:
                 return None
 
-    # 额外字段
+    # 组级额外字段
     for f in config.group_extra_fields:
         group[f] = entity.get(f, "")
 
-    # 验证 variants
+    # variants
     variants = entity.get("variants", [])
     if not variants:
         return None
 
     valid_variants = []
     for v in variants:
-        # 确保必要的文本字段存在
+        # 至少有一个 text_field
         has_required = any(f in v for f in config.text_fields)
         if has_required:
             clean_v = {}
@@ -379,21 +360,21 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
                 clean_v["style"] = f"table_{len(valid_variants)}"
             for f in config.text_fields:
                 raw = v.get(f)
-                # 将 null/None 字面量统一为空字符串
+                # null / None / N/A 之类的字面量统一成空串
                 if raw is None or str(raw).strip().lower() in ("null", "none", "n/a"):
                     clean_v[f] = ""
                 else:
                     clean_v[f] = str(raw)
-            # 检查空值数量：每个 variant 最多允许 1 个空字段
+            # 空字段超过 2 个就丢
             empty_count = sum(1 for f in config.text_fields if not clean_v.get(f, "").strip())
             if empty_count > 2:
-                continue  # 跳过空值过多的 variant
+                continue
             valid_variants.append(clean_v)
 
     if not valid_variants:
         return None
 
-    # 强制要求 variants 数量恰好等于表数量
+    # variant 数量必须刚好等于表数量
     expected = config.default_variants
     if len(valid_variants) != expected:
         return None

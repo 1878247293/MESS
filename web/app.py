@@ -1,4 +1,4 @@
-"""PathCL-EM 可视化界面 — Editorial/Magazine 风格"""
+"""SAGEM Gradio 前端"""
 
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ import gradio as gr
 from web.tabs import tab_main_flow, tab_contrastive, tab_llm_gen, tab_results
 
 
-# ---------------------------------------------------------------------------
-# 全局样式:Editorial/Magazine — Ivory paper + 编辑红 + Fraunces 显示体
-# ---------------------------------------------------------------------------
+# 全局样式
 CUSTOM_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,30..100;1,9..144,300..700,30..100&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;700&display=swap');
 
@@ -810,16 +808,14 @@ label span, .gradio-container label span {
 """
 
 
-# ---------------------------------------------------------------------------
-# 刊头 / 页脚 HTML
-# ---------------------------------------------------------------------------
+# 头部 / 页脚 HTML
 MASTHEAD_HTML = """
 <div class="masthead">
   <div class="issue">
     <span>Vol. 03 &nbsp;·&nbsp; № 01</span>
     <span>Apr &nbsp;·&nbsp; 2026</span>
   </div>
-  <h1>PathCL<span class="mark">·</span>EM</h1>
+  <h1>SAGEM</h1>
   <div class="subtitle">
     <em>Contrastive learning</em> and <em>LLM-driven augmentation</em><br>
     for multi-table entity matching at scale.
@@ -844,9 +840,7 @@ COLOPHON_HTML = """
 """
 
 
-# ---------------------------------------------------------------------------
-# 主题 — 基底保持中性,细节由自定义 CSS 覆盖
-# ---------------------------------------------------------------------------
+# 主题：中性底色，其它细节走自定义 CSS
 THEME = gr.themes.Base(
     primary_hue=gr.themes.colors.red,
     secondary_hue=gr.themes.colors.orange,
@@ -876,7 +870,7 @@ THEME = gr.themes.Base(
 
 def create_app() -> gr.Blocks:
     with gr.Blocks(
-        title="PathCL-EM · Editorial Workbench",
+        title="SAGEM · Workbench",
         analytics_enabled=False,
         fill_width=True,
     ) as app:

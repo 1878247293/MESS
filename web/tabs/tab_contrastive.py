@@ -1,4 +1,4 @@
-"""对比学习 tab — 超参配置 + loss 曲线 + 终端日志。"""
+"""对比学习 tab：超参 + loss 曲线 + 终端日志"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _status(running: bool, cur: int = 0, total: int = 0, msg: str = "") -> str:
         return f'<div class="status-line warn">{msg}</div>'
     if msg:
         return f'<div class="status-line">{msg}</div>'
-    return '<div class="status-line">就绪 · 配置后点击「开始训练」</div>'
+    return '<div class="status-line">就绪 · 配置完点开始训练</div>'
 
 
 def run_contrastive(
@@ -70,8 +70,8 @@ def create_tab():
     <div class="eyebrow">Chapter II &nbsp;·&nbsp; Contrastive</div>
     <div class="section-h"><span class="idx">§ 01</span>对比学习微调</div>
     <p class="section-desc dropcap">
-      基于 InfoNCE 损失,用 LLM 合成的正例对或真实标签微调底层 S-BERT 编码器。
-      左侧配置超参,右侧实时追踪 loss 曲线与训练日志。
+      基于 InfoNCE，用 LLM 合成的正例对或真实标签微调底层 S-BERT 编码器。
+      左边设超参，右边看 loss 曲线和训练日志。
     </p>
     """)
 
@@ -88,7 +88,7 @@ def create_tab():
             cl_mode = gr.Radio(
                 choices=["self-supervised", "supervised"],
                 value="self-supervised", label="训练模式",
-                info="self-supervised: 仅用合成正例;supervised: 使用真值标签",
+                info="self-supervised：只用合成正例；supervised：用真值标签",
             )
             with gr.Row():
                 cl_epochs = gr.Slider(1, 100, value=10, step=1, label="epochs")
@@ -98,7 +98,7 @@ def create_tab():
                 cl_temperature = gr.Slider(0.01, 1.0, value=0.07, step=0.01, label="温度 τ")
 
             with gr.Accordion("更多", open=False):
-                force_retrain = gr.Checkbox(value=False, label="忽略缓存,强制重新训练")
+                force_retrain = gr.Checkbox(value=False, label="忽略缓存，强制重训")
 
             with gr.Row(elem_classes="preset-row"):
                 run_btn = gr.Button("开始训练", variant="primary")

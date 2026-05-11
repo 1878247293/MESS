@@ -1,4 +1,4 @@
-"""主流程 tab — 数据集概览 + 参数预设 + 实时日志 + 指标。"""
+"""主流程 tab：数据集概览 + 参数预设 + 实时日志 + 指标"""
 
 from __future__ import annotations
 
@@ -17,9 +17,7 @@ from web.utils import (
 runner = ProcessRunner()
 
 
-# ---------------------------------------------------------------------------
 # HTML 片段
-# ---------------------------------------------------------------------------
 def _metric_grid(p, r, f1) -> str:
     def _cell(k: str, v, cls: str) -> str:
         if v is None:
@@ -42,7 +40,7 @@ def _metric_grid(p, r, f1) -> str:
 def _info_sheet(name: str) -> str:
     s = get_dataset_stats(name)
     if not s["exists"]:
-        return f'<div class="info-sheet">数据集 <span class="value">{name}</span> 不存在于 data/ 目录。</div>'
+        return f'<div class="info-sheet">数据集 <span class="value">{name}</span> 不在 data/ 下</div>'
 
     records = s["records"]
     records_str = f"{records:,}" + (" (估)" if s.get("records_approx") else "")
@@ -74,19 +72,17 @@ def _status(running: bool, pct: int | None, msg: str = "") -> str:
         return f'<div class="status-line on">{label} &nbsp;{msg}{bar}</div>'
     if msg.startswith("已停止") or "停止" in msg:
         return f'<div class="status-line warn">{msg}</div>'
-    return f'<div class="status-line">{msg or "就绪 · 选择数据集后点击「开始运行」"}</div>'
+    return f'<div class="status-line">{msg or "就绪 · 选择数据集后点击开始运行"}</div>'
 
 
-# ---------------------------------------------------------------------------
 # 回调
-# ---------------------------------------------------------------------------
 def on_dataset_change(name: str):
-    """切换数据集:刷新概览卡(不自动填参数,避免覆盖用户调整)。"""
+    """切数据集只刷概览卡，不动参数（避免覆盖用户手调的值）"""
     return _info_sheet(name)
 
 
 def apply_preset(name: str):
-    """把该数据集的推荐预设灌到参数控件。"""
+    """套该数据集的推荐预设到参数控件"""
     p = get_preset(name)
     return (
         p["col_sim_threshold"],
@@ -125,9 +121,9 @@ def run_main_flow(
             _status(True, pct),
         )
 
-    # 最后再发一帧:running=False
+    # 跑完了再发一帧 running=False
     m = parse_metrics_from_log(log_text)
-    done_msg = "已完成" if m["F1"] is not None else "已退出(未解析到指标)"
+    done_msg = "已完成" if m["F1"] is not None else "已退出（没解析到指标）"
     yield (
         collapse_progress_lines(log_text),
         _metric_grid(m["P"], m["R"], m["F1"]),
@@ -140,9 +136,7 @@ def stop_main_flow():
     return _status(False, None, "已停止运行")
 
 
-# ---------------------------------------------------------------------------
 # 页面构造
-# ---------------------------------------------------------------------------
 def create_tab():
     datasets = scan_datasets() or ["Geo"]
     initial = datasets[0]
@@ -194,7 +188,7 @@ def create_tab():
                 use_smart_pairing = gr.Checkbox(value=False, label="语义感知调度 (SAM)")
                 smart_pairing_strategy = gr.Radio(
                     choices=["similarity", "optimal", "complementary"],
-                    value="optimal", label="调度策略",
+                    value="optimal", label="调度",
                 )
                 k = gr.Number(value=1, precision=0, label="KNN k")
                 selection_rate = gr.Slider(
@@ -203,9 +197,9 @@ def create_tab():
                 )
                 run_in_parallel = gr.Checkbox(value=False, label="并行合并")
                 use_dataset_config = gr.Checkbox(
-                    value=True, label="启动时加载数据集最优配置(覆盖上面参数)",
+                    value=True, label="启动时套用数据集最优配置（会盖掉上面的参数）",
                 )
-                use_efficient_matching = gr.Checkbox(value=False, label="efficient 匹配模式")
+                use_efficient_matching = gr.Checkbox(value=False, label="efficient 匹配")
 
             with gr.Row(elem_classes="preset-row"):
                 run_btn = gr.Button("开始运行", variant="primary")

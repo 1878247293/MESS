@@ -52,36 +52,32 @@ def evaluate_log(ground_truth: List[Tuple], prediction: List[Tuple]):
 def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                              tid_to_name: dict, output_file: str) -> Metric:
     """
-    评估F1分数并输出实体组分类信息到文件
-    分类：
-    1. 误匹配-其他 (Mis-match Other): 混合了错误答案或完全错误
-    2. 误匹配-包含正确但有杂质 (Mis-match Superset): 包含了所有正确答案但多出了错误答案 (Impure Superset)
-    3. 漏匹配 (Miss-match): 属于正确答案的真子集 (Pure Subset)
-    4. 正确匹配 (Correct match): 完全一致
+    在算 F1 的同时把预测分组按四类写出来，便于人工排查：
+      1. 误匹配-其他（mis-match other）：包含错误成员或者完全错
+      2. 误匹配-超集（mis-match superset）：覆盖了正确组但额外塞了别的
+      3. 漏匹配（miss-match）：是正确组的真子集
+      4. 完全正确（correct match）
 
     Args:
-        ground_truth: 标准答案实体组列表
-        prediction: 预测的实体组列表
-        tid_to_name: tid到实体名称（文本）的映射字典
-        output_file: 输出文件路径
-
-    Returns:
-        Metric: 包含P, R, F1的评估指标
+        ground_truth: 真实分组
+        prediction: 预测分组
+        tid_to_name: tid -> 文本
+        output_file: 输出路径
     """
     ground_truth_set = set(ground_truth)
     prediction_set = set(prediction)
 
-    # 1. 正确匹配 (Correct match): P == GT
+    # 完全一致的
     correct_match = ground_truth_set.intersection(prediction_set)
-    
-    # 找出所有预测中不完全匹配的项
+
+    # 不一致的逐个分类
     incorrect_predictions = prediction_set - correct_match
-    
-    miss_match = set()           # P < GT (Pure Subset)
-    mis_match_superset = set()   # P > GT (Impure Superset)
-    mis_match_other = set()      # Other
-    
-    # 建立 tid -> ground_truth 分组的映射
+
+    miss_match = set()           # 真子集
+    mis_match_superset = set()   # 真超集
+    mis_match_other = set()      # 其他
+
+    # tid -> 它属于的 GT 组
     tid_to_gt_group = {}
     for gt_tuple in ground_truth:
         for tid in gt_tuple:
@@ -90,56 +86,49 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
     for pred in incorrect_predictions:
         if not pred:
             continue
-            
+
         pred_set = set(pred)
-        
-        # 找到 pred 可能对应的 GT 组
-        # 策略：找到 pred 中包含最多的那个 GT 组
+
+        # pred 里大多数实体来自哪个 GT 组
         gt_counts = {}
         for tid in pred:
             gt = tid_to_gt_group.get(tid)
             if gt:
-                gt_id = id(gt) # Use ID as dictionary key
+                gt_id = id(gt)
                 if gt_id not in gt_counts:
                     gt_counts[gt_id] = {'count': 0, 'gt': gt}
                 gt_counts[gt_id]['count'] += 1
-        
+
         if not gt_counts:
-            # 没有任何实体在 GT 中 -> 完全噪声 -> Other
+            # 全是噪声
             mis_match_other.add(pred)
             continue
-            
-        # 找到 pred 中占比最大的 GT
+
         best_gt_id = max(gt_counts, key=lambda k: gt_counts[k]['count'])
         target_gt = gt_counts[best_gt_id]['gt']
         target_gt_set = set(target_gt)
-        
-        # 逻辑判断
-        # 1. 检查是否是 Pure Subset (Miss-match)
-        # 条件：pred 是 target_gt 的子集，且 pred 中没有不属于 target_gt 的实体
+
+        # 1) pred ⊂ gt：是真子集，漏匹配
         if pred_set.issubset(target_gt_set):
-            # 已经是 incorrect_predictions，所以肯定不是 equal，那就是 proper subset
+            # 已经排除了 == 的情况，所以这里一定是真子集
             miss_match.add(pred)
-            
-        # 2. 检查是否是 Impure Superset (Mis-match Superset)
-        # 条件：target_gt 是 pred 的子集 (即 pred 包含了 target_gt 的所有实体)
+
+        # 2) gt ⊂ pred：是真超集，包对了但带了杂质
         elif target_gt_set.issubset(pred_set):
             mis_match_superset.add(pred)
-            
-        # 3. 其他情况 (Other)
+
+        # 3) 其它
         else:
             mis_match_other.add(pred)
 
-    # 输出结果
     with open(output_file, 'w', encoding='utf-8') as f:
-        # === 1. 误匹配 - 其他 (包含了错误答案/杂质/完全错误) ===
+        # 1) 误匹配 - 其他
         f.write("=== 误匹配 - 其他 (混合错误/噪声) ===\n")
         f.write(f"共 {len(mis_match_other)} 组\n\n")
         for tup in sorted(mis_match_other):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
             f.write(f"预测分组: {names}\n")
-            
-            # 详细分析
+
             f.write("详细分析:\n")
             seen_gts = {}
             for tid in tup:
@@ -155,16 +144,15 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                     f.write(f"  - {entity_name} -> 不在标准答案中 (噪声)\n")
             f.write("\n")
         f.write("="*70 + "\n\n")
-        
-        # === 2. 误匹配 - 包含正确但有杂质 (Superset) ===
+
+        # 2) 误匹配 - 超集
         f.write("=== 误匹配 - 包含所有正确但有杂质 (Superset) ===\n")
         f.write(f"共 {len(mis_match_superset)} 组\n\n")
         for tup in sorted(mis_match_superset):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
             f.write(f"预测分组 (超集): {names}\n")
-            
-            # 找到被包含的完整 GT
-            # 同样逻辑找到 target_gt
+
+            # 找到对应的完整 GT 组
             gt_counts = {}
             for tid in tup:
                 gt = tid_to_gt_group.get(tid)
@@ -178,8 +166,8 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                 target_gt = gt_counts[best_gt_id]['gt']
                 gt_names = [tid_to_name.get(t, f"tid_{t}") for t in target_gt]
                 f.write(f"包含了完整GT组: {gt_names}\n")
-                
-                # 找出多余的实体
+
+                # 多出来的部分
                 extra_tids = set(tup) - set(target_gt)
                 for tid in extra_tids:
                     entity_name = tid_to_name.get(tid, f"tid_{tid}")
@@ -192,14 +180,14 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
             f.write("\n")
         f.write("="*70 + "\n\n")
 
-        # === 3. 漏匹配 (对但是缺/子集) ===
+        # 3) 漏匹配
         f.write("=== 漏匹配 (对但是缺/子集) ===\n")
         f.write(f"共 {len(miss_match)} 组\n\n")
         for tup in sorted(miss_match):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
             f.write(f"预测分组 (子集): {names}\n")
-            
-            # 找到对应的完整GT
+
+            # 取第一个 tid 反查 GT
             first_tid = tup[0]
             gt_group = tid_to_gt_group.get(first_tid)
             if gt_group:
@@ -211,7 +199,7 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
             f.write("\n")
         f.write("="*70 + "\n\n")
 
-        # === 4. 正确匹配 ===
+        # 4) 正确
         f.write("=== 正确匹配 ===\n")
         f.write(f"共 {len(correct_match)} 组\n\n")
         for tup in sorted(correct_match):
@@ -220,7 +208,7 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
 
     log(f"实体组分类详细信息已保存到: {output_file}")
 
-    # 计算指标
+    # 算 P / R / F1
     truth = len(correct_match)
     P = truth / len(prediction_set) if len(prediction_set) > 0 else 0
     R = truth / len(ground_truth_set) if len(ground_truth_set) > 0 else 0
@@ -230,19 +218,10 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
 
 def evaluate_log_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                               tid_to_name: dict, output_file: str):
-    """
-    评估并记录日志，同时输出详细的实体组信息到文件
-
-    Args:
-        ground_truth: 标准答案实体组列表
-        prediction: 预测的实体组列表
-        tid_to_name: tid到实体名称（文本）的映射字典
-        output_file: 输出文件路径
-    """
+    """评估 + 把分组明细写到文件"""
     log(f"num of ground truth: {len(ground_truth)}")
     log(f"num of prediction: {len(prediction)}")
 
-    # 使用带输出功能的评估函数
     f1_metric = evaluate_f1_with_output(ground_truth, prediction, tid_to_name, output_file)
     pair_f1_metric = evaluate_pair_f1(ground_truth, prediction)
 

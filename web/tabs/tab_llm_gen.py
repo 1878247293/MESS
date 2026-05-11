@@ -1,4 +1,4 @@
-"""LLM 数据生成 tab — 配置 + 日志 + 结果预览(entity group 展开)。"""
+"""LLM 数据生成 tab：配置 + 日志 + 结果预览（entity group 展开）"""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ def _status(state: str, count: int = 0) -> str:
         return f'<div class="status-line on">生成完成 · 共 {count:,} 条正例对</div>'
     if state == "stopped":
         return '<div class="status-line warn">已停止生成</div>'
-    return '<div class="status-line">就绪 · 配置 LLM 参数后点击「开始生成」</div>'
+    return '<div class="status-line">就绪 · 配 LLM 参数后点开始生成</div>'
 
 
 def _pairs_preview(path: Path) -> str:
-    """把 labeled_pairs.json 渲染成学术排版的前 8 组实体对。"""
+    """labeled_pairs.json 拍成前 8 组实体对的小预览"""
     if not path.exists():
-        return '<div class="info-sheet">尚未找到 labeled_pairs.json</div>'
+        return '<div class="info-sheet">还没有 labeled_pairs.json</div>'
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
@@ -63,7 +63,7 @@ def _pairs_preview(path: Path) -> str:
         body_rows = []
         for v in variants:
             style = v.get("style", "")
-            # 提取除 style 外的字段
+            # style 之外的字段都拼到一行展示
             fields = {k: val for k, val in v.items() if k != "style"}
             text = " &nbsp;·&nbsp; ".join(f"{k}=<code>{val}</code>" for k, val in fields.items())
             body_rows.append(
@@ -104,7 +104,7 @@ def run_llm_gen(
 
     output_path = PROJECT_ROOT / "llm_training_data" / dataset / "labeled_pairs.json"
     preview_html = _pairs_preview(output_path)
-    # 提取总数用于状态行
+    # 顺手数一下总数挂到状态行
     count = 0
     if output_path.exists():
         try:
@@ -135,9 +135,9 @@ def create_tab():
     <div class="eyebrow">Chapter III &nbsp;·&nbsp; Synthesis</div>
     <div class="section-h"><span class="idx">§ 01</span>LLM 合成训练对</div>
     <p class="section-desc dropcap">
-      调用大模型分析多表异构模式,一次性生成固定数量的领域正例对,保存为
-      <code>labeled_pairs.json</code> 供对比学习阶段使用。
-      生成完成后,下方将预览前 8 组实体及其跨表变体。
+      让大模型先看一遍多表的格式差异，按目标数量产出一批正例对，落到
+      <code>labeled_pairs.json</code> 给对比学习用。
+      跑完之后下面会展示前 8 组实体的跨表 variant。
     </p>
     """)
 
@@ -150,7 +150,7 @@ def create_tab():
             backend = gr.Radio(
                 choices=["api", "ollama", "vllm"], value="api",
                 label="后端类型",
-                info="api: OpenAI 兼容; ollama/vllm: 本地推理",
+                info="api：OpenAI 兼容；ollama / vllm：本地推理",
             )
             api_url = gr.Textbox(value="https://api520.pro", label="API URL")
             api_key = gr.Textbox(value="", label="API Key", type="password")
@@ -181,7 +181,7 @@ def create_tab():
 
             gr.HTML('<div class="section-h" style="margin-top:18px;"><span class="idx">§ 04</span>实体组预览<span style="font-family:var(--serif); font-style:italic; font-weight:400; font-size:0.72em; color:var(--ink-faint); letter-spacing:0; text-transform:none; margin-left:8px;">前 8 组</span></div>')
             preview_html = gr.HTML(
-                '<div class="info-sheet">生成完成后,此处会展示前 8 组合成实体的各表变体。</div>'
+                '<div class="info-sheet">跑完之后这里会摆前 8 组合成实体的各表 variant。</div>'
             )
 
     run_btn.click(

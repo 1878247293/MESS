@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import os
 
-# 自动将 src 及其子目录添加到搜索路径，以保持旧的 import 语句可用
+# 把 src/ 下的子目录塞进 sys.path，老的 import 不用动
 _base_path = Path(__file__).resolve().parent
 sys.path.append(str(_base_path / 'src'))
 for _sub in ['core', 'llm', 'data_chuli', 'training', 'utils']:
@@ -14,19 +14,19 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import torch
 
-# 性能优化：启用 TensorFloat32 加速 (针对 RTX 30/40 系列显卡)
+# 30/40 系卡上开 TF32，能稳吃一波速度
 if torch.cuda.is_available():
     torch.set_float32_matmul_precision('high')
 
 
 def _wrap_data_parallel(model: SentenceTransformer, enabled: bool = False) -> bool:
-    """多 GPU 时用 DataParallel 包裹底层 transformer，需 --multi-gpu 开启"""
+    """需要 --multi-gpu 显式打开，否则不动"""
     if enabled and torch.cuda.is_available() and torch.cuda.device_count() > 1:
         transformer = model._first_module()
         if not isinstance(transformer.auto_model, torch.nn.DataParallel):
             original_model = transformer.auto_model
             transformer.auto_model = torch.nn.DataParallel(original_model)
-            # 暴露 config 等属性，避免 sentence-transformers 内部访问报错
+            # 这里得手动把 config 透出来，不然 ST 内部访问会炸
             transformer.auto_model.config = original_model.config
             print(f"  多GPU: DataParallel ({torch.cuda.device_count()} GPUs)")
             return True
@@ -34,7 +34,6 @@ def _wrap_data_parallel(model: SentenceTransformer, enabled: bool = False) -> bo
 
 
 def _unwrap_data_parallel(model: SentenceTransformer):
-    """解除 DataParallel 包裹"""
     transformer = model._first_module()
     if isinstance(transformer.auto_model, torch.nn.DataParallel):
         transformer.auto_model = transformer.auto_model.module
@@ -50,37 +49,34 @@ from merger import merge, merge_parallel, merge_with_smart_pairing, merge_parall
 from resource_monitor import ResourceMonitor, ensure_stage_metrics, format_bytes, update_stage_metrics
 from result_logger import ResultLogger
 
-# ========== PathCL-EM: 导入新模块 ==========
-
 
 
 if __name__ == '__main__':
 
-    args = build_main_args()#参数解析
+    args = build_main_args()
     file_name = f"main"
     log_file_name = init_logger(file_name)
     log_args(args)
     log(log_file_name)
 
-    # ========== 初始化结果记录器 ==========
+    # 初始化 result_logger
     result_logger = ResultLogger(dataset_name=args.data_name)
     result_logger.set_parameters(args)
     ensure_stage_metrics(args)
-    # 将 result_logger 附加到 args 上，以便在其他模块中使用
+    # 挂到 args 上方便其他地方拿
     args.result_logger = result_logger
     run_monitor = ResourceMonitor()
     run_monitor.start()
     log(f"结果将保存到 results/ 目录")
-    # ========== 初始化结果记录器结束 ==========
 
-    data_path = Path(args.data_path)#数据路径
+    data_path = Path(args.data_path)
     full_data_path = data_path / args.data_name
-    timer = Timer()#计时器
+    timer = Timer()
 
-    # ========== 属性选择(支持缓存) ==========
-    cache_manager = get_cache_manager()#缓存管理器
+    # 属性选择（带缓存）
+    cache_manager = get_cache_manager()
 
-    # pd.df - 首次读取(用于属性选择)
+    # 先全量读一遍，给属性选择用
     T, tables_df = read_all_tables(full_data_path)
 
     manual_attrs = []
@@ -91,7 +87,7 @@ if __name__ == '__main__':
         ]
 
     if not args.eer_flag and manual_attrs:
-        log("⚠️  --manual-selected-attrs 被忽略，因为 eer_flag=False（属性选择阶段未启用）")
+        log("注意: 因为 eer_flag=False，--manual-selected-attrs 不会生效")
 
     if args.eer_flag:
         if manual_attrs:
@@ -105,7 +101,7 @@ if __name__ == '__main__':
 
             selected_attrs = ["tid"] + [attr for attr in manual_attrs if attr != "tid"]
             attribute_scores = {}
-            log(f"🛠️ 使用手工指定属性，跳过自动属性选择: {selected_attrs}")
+            log(f"使用手工指定的属性，跳过自动选择: {selected_attrs}")
             result_logger.log_attribute_selection(
                 selected_attrs=selected_attrs,
                 attribute_scores=attribute_scores,
@@ -113,7 +109,7 @@ if __name__ == '__main__':
                 from_cache=False
             )
         else:
-            # 尝试从缓存加载（不同模型独立缓存）
+            # 不同模型缓存隔开
             cache = cache_manager.load_cache(
                 args.data_name,
                 args.col_sim_threshold,
@@ -122,11 +118,9 @@ if __name__ == '__main__':
             )
 
             if cache is not None:
-                # 使用缓存的结果
                 selected_attrs = cache.selected_attrs
-                attribute_scores = {}  # 缓存中没有保存属性分数，使用空字典
-                log("⚡ 跳过属性选择阶段(使用缓存)")
-                # 记录到 result_logger（使用缓存）
+                attribute_scores = {}  # 缓存里没存分数
+                log("命中缓存，跳过属性选择")
                 result_logger.log_attribute_selection(
                     selected_attrs=selected_attrs,
                     attribute_scores=attribute_scores,
@@ -136,10 +130,9 @@ if __name__ == '__main__':
             else:
                 selection_monitor = ResourceMonitor()
                 selection_monitor.start()
-                # 执行属性选择并保存缓存
-                log("🔍 开始属性选择...")
+                log("开始属性选择...")
                 timer.start()
-                selected_attrs, attribute_scores = auto_selection(tables_df, args)#执行属性选择
+                selected_attrs, attribute_scores = auto_selection(tables_df, args)
                 tm = timer.stop()
                 selection_usage = selection_monitor.stop()
                 stage_metrics = update_stage_metrics(args, "attribute_selection", selection_usage)
@@ -154,7 +147,6 @@ if __name__ == '__main__':
                     f"stage_peak_vram={format_bytes(stage_metrics['peak_gpu_memory_bytes'])}"
                 )
 
-                # 记录到 result_logger
                 result_logger.log_attribute_selection(
                     selected_attrs=selected_attrs,
                     attribute_scores=attribute_scores,
@@ -162,7 +154,6 @@ if __name__ == '__main__':
                     from_cache=False
                 )
 
-                # 保存到缓存（两个模型共用同一缓存）
                 cache_manager.save_cache(
                     dataset_name=args.data_name,
                     selected_attrs=selected_attrs,
@@ -175,52 +166,48 @@ if __name__ == '__main__':
     else:
         selected_attrs = None
         attribute_scores = {}
-        # 记录到 result_logger（未启用EER）
         result_logger.log_attribute_selection(
             selected_attrs=[],
             attribute_scores={},
             time=0.0,
             from_cache=False
         )
-    # ========== 属性选择结束 ==========
-    
-# ==========读表和编码 =========
+
+# 读表 + 编码
     timer.start()
-    T, tables_df = read_all_tables(#返回表数量 T 和 DataFrame 列表 tables_df。
+    T, tables_df = read_all_tables(
         full_data_path, selected_attrs=selected_attrs, sample_rate=args.data_sample_rate)
     tm = timer.stop()
     log_time("read all tables", tm)
-    table_lens = [len(table) for table in tables_df]#每个表的行数
+    table_lens = [len(table) for table in tables_df]
     n = sum(table_lens)
 
-    # 记录数据加载结果
     result_logger.log_data_loading(
         num_tables=len(tables_df),
         table_sizes=table_lens,
         time=tm,
-        tables_df=tables_df,  # 传入原始表数据
+        tables_df=tables_df,
         sample_size=5
     )
 
-    table_ids = [table["tid"].tolist() for table in tables_df]#每个表的 tid 列表
-    # data.Table
+    table_ids = [table["tid"].tolist() for table in tables_df]
     tables = [Table(str(idx), table_id, list(range(len(table_id))))
               for idx, table_id in enumerate(table_ids)]
 
-    # ========== 文本化表格 ==========
+    # 表 -> 文本
     timer.start()
     table_sentences = [
         textify_table(table)
         for table in tables_df
     ]
     trust_code = "modernbert" in str(args.lm_model_or_path).lower()
-    log(f"⏳ 开始实例化 SentenceTransformer...")
+    log(f"实例化 SentenceTransformer ...")
     model = SentenceTransformer(args.lm_model_or_path, trust_remote_code=trust_code, local_files_only=True)
-    log(f"✅ SentenceTransformer 实例化完成")
+    log(f"SentenceTransformer 实例化完成")
     model.max_seq_length = args.max_seq_length
-    log(f"⏳ 开始将模型加载到设备: {args.device} (首次加载 CUDA 会比较慢，请耐心等待...)")
+    log(f"加载到设备: {args.device} (首次走 CUDA 会比较慢)")
     model.to(args.device)
-    log(f"✅ 模型成功加载到设备: {args.device}")
+    log(f"模型已加载到 {args.device}")
     _wrap_data_parallel(model, enabled=args.multi_gpu)
     table_embeddings = [
         model.encode(sentences, show_progress_bar=True,
@@ -231,43 +218,40 @@ if __name__ == '__main__':
     tm = timer.stop()
     log_time("encode all tables", tm)
 
-    # 记录编码结果
     result_logger.log_encoding(
         embedding_shape=list(all_embeddings.shape),
         model_name=args.lm_model_or_path,
         time=tm,
-        all_embeddings=all_embeddings,  # 传入嵌入向量
-        table_sentences=table_sentences,  # 传入原始文本
+        all_embeddings=all_embeddings,
+        table_sentences=table_sentences,
         sample_size=5
     )
 
-    # ========== 创建 tid 到实体名称的映射（用于输出评估详情）==========
+    # tid -> 文本，evaluate 输出时用得上
     all_sentences_flat = list(chain(*table_sentences))
     tid_to_name = {tid: text for tid, text in enumerate(all_sentences_flat)}
-    log(f"已创建 tid_to_name 映射，共 {len(tid_to_name)} 个实体")
+    log(f"tid_to_name 共 {len(tid_to_name)} 条")
 
-    # 对比学习已移除，直接记录（未启用）
+    # 这里没启用 CL，直接登一个 disabled
     result_logger.log_contrastive_learning(enabled=False)
     ground_truth = read_ground_truth(full_data_path)
 
     timer.start()
 
-    # ========== 合并阶段：支持智能表配对 ==========
+    # 合并阶段
     if args.use_smart_pairing:
-        # 智能表配对
         log(f"Using smart table pairing, strategy: {args.smart_pairing_strategy}")
         if args.run_in_parallel:
             table = merge_parallel_with_smart_pairing(tables, all_embeddings, args)
         else:
             table = merge_with_smart_pairing(tables, all_embeddings, args)
     else:
-        # 原始随机配对
+        # 老路子：随机配对
         log("Using random table pairing")
         if args.run_in_parallel:
             table = merge_parallel(tables, all_embeddings, args)
         else:
             table = merge(tables, all_embeddings, args)
-    # ========== 合并阶段结束 ==========
     tm = timer.stop()
     log_time("merging", tm)
     prediction = table.get_tuples()
@@ -300,7 +284,7 @@ if __name__ == '__main__':
         final_tuples=len(prediction)
     )
 
-    # ========== 输出合并后的表内容 ==========
+    # 把合并后的表内容落盘，方便人工核对
     from datetime import datetime
     merge_table_file = f"logs/merge_table_content_{args.data_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     with open(merge_table_file, 'w', encoding='utf-8') as f:
@@ -311,7 +295,7 @@ if __name__ == '__main__':
         f.write(f"总元组数: {len(prediction)}\n")
         f.write(f"总实体数: {sum(len(t) for t in prediction)}\n")
         f.write(f"{'='*80}\n\n")
-        
+
         for idx, tuple_tids in enumerate(prediction, 1):
             f.write(f"元组 #{idx} (含 {len(tuple_tids)} 个实体)\n")
             f.write(f"  TIDs: {tuple_tids}\n")
@@ -320,18 +304,16 @@ if __name__ == '__main__':
                 text = tid_to_name.get(tid, f"Unknown-{tid}")
                 f.write(f"    {i}. [{tid}] {text}\n")
             f.write("\n")
-    
-    log(f"📝 合并后表内容已保存: {merge_table_file}")
 
-    # 记录合并后的评估结果
+    log(f"合并后表内容已写入: {merge_table_file}")
+
+    # 合并后评估
     result_logger.log_evaluation(ground_truth, prediction, is_final=False)
-    # 输出详细的实体组匹配信息（合并后）
     merge_output_file = f"logs/entity_groups_after_merge_{args.data_name}.txt"
     evaluate_log_with_output(ground_truth, prediction, tid_to_name, merge_output_file)
 
-    # 记录最终评估结果
+    # 终评估（这版没有剪枝阶段，直接复用同一份 prediction）
     result_logger.log_evaluation(ground_truth, prediction, is_final=True)
-    # 输出详细的实体组匹配信息（最终）
     final_output_file = f"logs/entity_groups_final_{args.data_name}.txt"
     evaluate_log_with_output(ground_truth, prediction, tid_to_name, final_output_file)
 
@@ -355,11 +337,11 @@ if __name__ == '__main__':
     }
     result_logger.log_run_summary(run_summary)
 
-    # ========== 保存所有中间结果 ==========
+    # 落盘
     json_file, txt_file = result_logger.save_results()
-    log(f"中间结果已保存:")
-    log(f"  JSON 文件: {json_file}")
-    log(f"  文本文件: {txt_file}")
+    log(f"中间结果已写入:")
+    log(f"  JSON: {json_file}")
+    log(f"  TXT : {txt_file}")
 
     log("=== Run Summary ===")
     for phase_name, phase_time in phase_times.items():

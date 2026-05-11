@@ -1,4 +1,4 @@
-"""结果 tab — 汇总表、点行看详情、多选对比、按数据集分组。"""
+"""结果 tab：汇总表 + 单行详情 + 多选对比 + 按数据集分组"""
 
 from __future__ import annotations
 
@@ -12,14 +12,12 @@ import pandas as pd
 from web.utils import load_result_files, load_result_detail
 
 
-# ---------------------------------------------------------------------------
 # 汇总
-# ---------------------------------------------------------------------------
 def _summary_card(records: List[Dict]) -> str:
     if not records:
         return """
         <div class="info-sheet">
-          尚无结果文件。先在「主流程」tab 跑一次实验,然后回到这里刷新。
+          还没有结果文件。先在主流程 tab 跑一次实验，然后回这里刷新。
         </div>
         """
     cnt = len(records)
@@ -94,17 +92,17 @@ def refresh_results():
 
 
 def on_row_select(evt: gr.SelectData, df: pd.DataFrame):
-    """点击表格任一行 → 直接渲染详情。去掉独立的 dropdown+按钮步骤。"""
+    """点表格行 -> 直接出 JSON 详情"""
     if df is None or df.empty or evt is None:
-        return "尚无结果或未选中行。"
+        return "没有结果或没选中行"
     try:
         row_idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
         filename = df.iloc[row_idx]["文件"]
     except (IndexError, KeyError, TypeError):
-        return "定位行失败。"
+        return "定位行失败"
     data = load_result_detail(filename)
     if not data:
-        return f"读取 {filename} 失败。"
+        return f"读取 {filename} 失败"
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
@@ -146,8 +144,8 @@ def create_tab():
     <div class="eyebrow">Chapter IV &nbsp;·&nbsp; Archive</div>
     <div class="section-h"><span class="idx">§ 01</span>实验记录</div>
     <p class="section-desc dropcap">
-      自动扫描 <code>results/*.json</code>。点击表格任一行可在下方查看该次运行的完整 JSON;
-      勾选多行并按「对比」可画 P/R/F1 柱状图,并排参数差异。
+      自动扫 <code>results/*.json</code>。点表格任一行就能在下方看那次的完整 JSON；
+      多选后按对比，可以画 P/R/F1 柱状图，并把参数差异列在一起。
     </p>
     """)
 
@@ -156,7 +154,7 @@ def create_tab():
     with gr.Row(elem_classes="preset-row"):
         refresh_btn = gr.Button("刷新列表", variant="primary")
 
-    # 隐式状态:当前表格的 DataFrame(用于行选中回调读取文件名)
+    # 表格内部状态：当前 DataFrame，行选回调要从里面捞文件名
     records_table = gr.Dataframe(
         value=pd.DataFrame(),
         label="",
@@ -177,8 +175,8 @@ def create_tab():
     gr.HTML('<div class="section-h" style="margin-top:26px;"><span class="idx">§ 03</span>多次运行对比</div>')
     with gr.Row():
         selected_files = gr.Dropdown(
-            choices=[], multiselect=True, label="选择若干文件",
-            info="先刷新上表,再从这里多选",
+            choices=[], multiselect=True, label="选若干文件",
+            info="先刷新上面的表，再回这里多选",
         )
         compare_btn = gr.Button("对比", variant="secondary")
 
@@ -198,7 +196,7 @@ def create_tab():
                 wrap=True,
             )
 
-    # ── 事件 ──
+    # 事件
     refresh_btn.click(
         fn=refresh_results,
         outputs=[records_table, selected_files, summary_html],

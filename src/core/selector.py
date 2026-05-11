@@ -1,8 +1,8 @@
 from typing import List
 import os
 
-# 在导入 Hugging Face / SentenceTransformers 相关库前强制开启离线模式，
-# 避免属性选择阶段发生隐式联网探测。
+# 在 import HF / SentenceTransformers 之前先把离线开关打开
+# 否则属性选择阶段偶尔会偷偷探测网络
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 

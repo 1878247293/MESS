@@ -1,4 +1,4 @@
-"""subprocess 执行器：统一管理后端进程调用"""
+"""统一通过 subprocess 跑后端脚本"""
 
 import subprocess
 import sys
@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Generator, Optional
 
 
-# 项目根目录（web/ 的上级）
+# 项目根目录（web/ 的上一级）
 PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 PYTHON = sys.executable
 
 
 class ProcessRunner:
-    """统一的子进程执行器，通过 subprocess 调用后端脚本"""
+    """把 main.py / train_contrastive.py / llm_data_generator 起在子进程里"""
 
     def __init__(self):
         self.process: Optional[subprocess.Popen] = None

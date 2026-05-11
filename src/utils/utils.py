@@ -6,22 +6,12 @@ import numpy as np
 
 def knn_search(value: np.array, ids: np.array, query: np.array, k: int, seed: int, metric="cosine", dim=None):
     """
-    使用 HNSW 进行 K 近邻搜索
-
-    Args:
-        value: 索引向量 [N, D]
-        ids: 向量对应的ID
-        query: 查询向量 [M, D]
-        k: 近邻数量
-        seed: 随机种子
-        metric: 距离度量（"cosine" 或 "l2"）
-        dim: 向量维度（默认None，自动从value中检测）
+    HNSW 上的 KNN。dim 不传就从 value 推。
 
     Returns:
-        I: 近邻索引
-        D: 近邻距离
+        I: 邻居索引
+        D: 邻居距离
     """
-    # 自动检测维度（支持不同模型的嵌入维度）
     if dim is None:
         dim = value.shape[1]
 

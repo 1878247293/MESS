@@ -1,11 +1,7 @@
-"""Stage 2: LLM 分析数据集表间差异，生成完整的 Markdown 生成规范。
+"""Stage 2：让 LLM 看一眼采样数据，吐出一份 markdown 形式的生成规范。
 
-单次 LLM 调用，输出一份详尽的 Markdown 文档，覆盖：
-- 数据集概述与实体匹配要求
-- 各表逐字段的格式规范（含具体示例值）
-- 表间差异模式（系统性格式差异）
-- 噪声类型（拼写错误、OCR、缺失等）
-- 特别注意事项
+只调一次 LLM。输出会被下一阶段直接读，所以规范要把字段格式、表间差异、
+噪声类型等内容写得足够细。
 """
 
 import json
@@ -210,19 +206,8 @@ ANALYSIS_USER_TEMPLATE = """请分析以下实体匹配数据集的各表采样�
 def analyze_dataset(client, config: DatasetConfig,
                     sampled_tables: list, num_tables: int,
                     gen_config: GeneratorConfig = None) -> dict:
-    """使用 LLM 分析数据集的表间差异，生成完整的 Markdown 生成规范。
-
-    Args:
-        client: Ollama 客户端
-        config: 数据集配置
-        sampled_tables: 各表的采样 DataFrame 列表
-        num_tables: 表总数
-        gen_config: 生成配置
-
-    Returns:
-        分析结果字典，包含 dataset_instructions (完整 Markdown 规范)
-    """
-    print("Stage 2: LLM 分析数据集，生成完整生成规范...")
+    """跑一次 LLM，返回包含 dataset_instructions 的 dict"""
+    print("Stage 2: 调 LLM 出生成规范...")
 
     columns = config.columns
     formatted_samples = format_samples_for_prompt(sampled_tables, columns)
@@ -247,7 +232,7 @@ def analyze_dataset(client, config: DatasetConfig,
         force_json=False,
     ).strip()
 
-    # 清理 LLM 可能带上的 markdown 代码块标记
+    # 偶尔 LLM 会把 markdown 包在 ```...``` 里，一并去掉
     if dataset_instructions.startswith("```"):
         lines = dataset_instructions.splitlines()
         lines = [l for l in lines if not l.strip().startswith("```")]
@@ -257,21 +242,19 @@ def analyze_dataset(client, config: DatasetConfig,
         "dataset_instructions": dataset_instructions,
     }
 
-    print(f"  生成规范完成 ({len(dataset_instructions)} 字符)")
+    print(f"  规范文本长度: {len(dataset_instructions)} 字符")
 
     return analysis
 
 
 def save_analysis(analysis: dict, output_path: str):
-    """将分析结果缓存到文件。"""
     from pathlib import Path
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(analysis, f, ensure_ascii=False, indent=2)
-    print(f"  分析结果已缓存到: {output_path}")
+    print(f"  缓存到: {output_path}")
 
 
 def load_analysis(cache_path: str) -> dict:
-    """从缓存加载分析结果。"""
     with open(cache_path, "r", encoding="utf-8") as f:
         return json.load(f)

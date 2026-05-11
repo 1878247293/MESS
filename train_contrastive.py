@@ -1,17 +1,17 @@
 """
-独立对比学习训练脚本
+独立的对比学习训练脚本
 
-用法:
-    # 自监督训练
+例:
+    # 自监督
     python train_contrastive.py --data-name Geo --cl-mode self-supervised --cl-epochs 10
 
-    # 有监督训练
+    # 有监督
     python train_contrastive.py --data-name Geo --cl-mode supervised --cl-epochs 10
 
-    # 指定模型
+    # 换模型
     python train_contrastive.py --data-name Shopee --model-type minilm --cl-mode supervised
 
-    # 强制重新训练
+    # 强制重训
     python train_contrastive.py --data-name Geo --cl-mode supervised --force-retrain
 """
 
@@ -21,11 +21,11 @@ import os
 import sys
 import time
 
-# 强制 HuggingFace 相关库进入离线模式，必须在 import transformers/sentence_transformers 之前
+# 必须在 import transformers / sentence_transformers 前先把离线模式打开
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-# 自动将 src 及其子目录添加到搜索路径
+# 把 src/ 子目录塞进 sys.path
 _base_path = Path(__file__).resolve().parent
 sys.path.append(str(_base_path / 'src'))
 for _sub in ['core', 'llm', 'data_chuli', 'training', 'utils']:
@@ -35,7 +35,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import torch
 
-# 性能优化：启用 TensorFloat32 加速 (针对 RTX 30/40 系列显卡)
+# 30/40 系卡上开 TF32
 if torch.cuda.is_available():
     torch.set_float32_matmul_precision('high')
 
@@ -50,7 +50,7 @@ def main():
     data_path = Path(args.data_path)
     full_data_path = data_path / args.data_name
 
-    # ========== 1. 加载数据集 ==========
+    # 1. 读数据
     print(f"\n{'='*60}")
     print(f"独立对比学习训练")
     print(f"{'='*60}")
@@ -68,9 +68,9 @@ def main():
     t0 = time.time()
     all_sentences = None
     if args.cl_mode == "supervised":
-        # 有监督模式直接从 cl_training_data_dir 读 triplets，无需加载原始数据集
+        # 有监督直接读 triplets，不用过原表
         T = 0
-        print(f"  有监督模式: 跳过原始数据集加载，训练数据来自 {args.cl_training_data_dir}/")
+        print(f"  有监督模式: 跳过原始数据集，训练数据来自 {args.cl_training_data_dir}/")
     else:
         T, tables_df = read_all_tables(full_data_path)
         table_sentences = [textify_table(table) for table in tables_df]
@@ -79,7 +79,7 @@ def main():
         print(f"  总实体数: {len(all_sentences)}")
     print(f"  耗时: {time.time() - t0:.2f}s\n")
 
-    # ========== 2. 加载模型 ==========
+    # 2. 加载模型
     print("加载 SentenceTransformer 模型...")
     trust_code = "modernbert" in str(args.lm_model_or_path).lower()
     model = SentenceTransformer(args.lm_model_or_path, trust_remote_code=trust_code)
@@ -87,8 +87,8 @@ def main():
     model.to(args.device)
     print(f"  模型已加载到 {args.device}\n")
 
-    # ========== 3. 对比学习训练 ==========
-    print("开始对比学习训练...")
+    # 3. 训练
+    print("开始训练...")
     t_train = time.time()
 
     if args.cl_mode == "supervised":
@@ -105,7 +105,7 @@ def main():
     train_time = time.time() - t_train
     print(f"  训练耗时: {train_time:.2f}s\n")
 
-    # ========== 4. 训练摘要 ==========
+    # 4. 摘要
     print(f"{'='*60}")
     print(f"训练摘要")
     print(f"{'='*60}")

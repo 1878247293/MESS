@@ -1,13 +1,10 @@
 """
-对比学习训练模块 - 用于微调 Sentence-BERT
+对比学习训练 — Sentence-BERT 微调。
 
-实现 SimCLR 风格的对比学习框架:
-- InfoNCE 损失函数
-- 批内负采样策略
-- 支持 GPU 加速训练
-
-Author: PathCL-EM Project
-Date: 2025-01-10
+实现 SimCLR 那一套：InfoNCE + 批内负采样。
+两种模式：
+- self-supervised：拿同一条做两次增强当正对
+- supervised：从 labeled_pairs.json 读现成的正对
 """
 
 import json
@@ -26,37 +23,29 @@ from augmentation import create_augmented_pair, batch_augment
 
 def _load_cached_weights(model: SentenceTransformer, cache_model_path: Path) -> SentenceTransformer:
     """
-    从缓存目录加载微调权重到已有模型，避免重新实例化 SentenceTransformer。
-
-    只加载 model.safetensors 中的权重，跳过架构初始化和 tokenizer 加载，
-    因此比 SentenceTransformer(path) 快很多。
+    复用已经实例化好的 SentenceTransformer，只把缓存里的权重灌进去。
+    避免再走一次 SentenceTransformer(path)，那个加载链路比较慢。
     """
     weights_path = cache_model_path / "model.safetensors"
     if weights_path.exists():
         state_dict = load_safetensors(str(weights_path), device=str(model.device))
         model[0].auto_model.load_state_dict(state_dict)
     else:
-        # 兜底：如果没有 safetensors 文件，回退到 pytorch_model.bin
+        # 兜底：老版本可能存的是 .bin
         weights_path = cache_model_path / "pytorch_model.bin"
         state_dict = torch.load(str(weights_path), map_location=model.device)
         model[0].auto_model.load_state_dict(state_dict)
     return model
 
 
-# ==================== 对比学习数据集 ====================
+# 数据集
 
 class ContrastiveDataset(Dataset):
-    """对比学习数据集"""
+    """同一条文本生成两个增强视图，作为正对"""
 
     def __init__(self, entity_texts: List[str],
                  augmentation_methods1: List[str] = ['mask', 'shuffle'],
                  augmentation_methods2: List[str] = ['dropout', 'synonym']):
-        """
-        Args:
-            entity_texts: 实体文本列表
-            augmentation_methods1: 第一个视图的增强方法
-            augmentation_methods2: 第二个视图的增强方法
-        """
         self.entity_texts = entity_texts
         self.aug_methods1 = augmentation_methods1
         self.aug_methods2 = augmentation_methods2
@@ -66,7 +55,6 @@ class ContrastiveDataset(Dataset):
 
     def __getitem__(self, idx):
         entity_text = self.entity_texts[idx]
-        # 创建两个增强视图
         view1, view2 = create_augmented_pair(
             entity_text,
             method_set1=self.aug_methods1,
@@ -76,18 +64,19 @@ class ContrastiveDataset(Dataset):
 
 
 class SupervisedPairDataset(Dataset):
-    """从标注数据加载正样本对"""
+    """从标注文件读正对"""
 
     def __init__(self, data_path: str, data_name: str):
         json_file = Path(data_path) / data_name / "labeled_pairs.json"
         with open(json_file, encoding="utf-8") as f:
             data = json.load(f)
-        # 兼容新旧格式：新格式用 "pairs"（仅正样本），旧格式用 "triplets"（需过滤 label=1）
+        # 两种历史格式都兼容
+        # 新版直接是 pairs（全是正对），老版是 triplets，要按 label==1 过一道
         if "pairs" in data:
             self.pairs = [(t[0], t[1]) for t in data["pairs"]]
         else:
             self.pairs = [(t[0], t[1]) for t in data["triplets"] if t[2] == 1]
-        print(f"[SupervisedPairDataset] 加载 {len(self.pairs)} 个正样本对 (from {json_file})")
+        print(f"[SupervisedPairDataset] 加载 {len(self.pairs)} 个正对 (from {json_file})")
 
     def __len__(self):
         return len(self.pairs)
@@ -97,27 +86,20 @@ class SupervisedPairDataset(Dataset):
 
 
 class ContrastiveLearner:
-    """对比学习训练器"""
+    """训练壳，把模型 / 损失 / 多卡 / 日志包到一起"""
 
     def __init__(self,
                  base_model: SentenceTransformer,
                  temperature: float = 0.07,
                  device: str = 'cuda',
                  multi_gpu: bool = False):
-        """
-        Args:
-            base_model: 预训练的 SentenceTransformer 模型
-            temperature: InfoNCE 损失的温度参数
-            device: 计算设备 ('cuda' 或 'cpu')
-        """
         self.model = base_model
         self.temperature = temperature
         self.device = device if torch.cuda.is_available() else 'cpu'
 
-        # 将模型移到指定设备
         self.model.to(self.device)
 
-        # 多 GPU 支持: 用 DataParallel 包裹底层 transformer
+        # 多卡：用 DataParallel 包底层 transformer
         self._using_data_parallel = False
         if multi_gpu and self.device.startswith('cuda') and torch.cuda.device_count() > 1:
             transformer = self.model._first_module()
@@ -126,22 +108,22 @@ class ContrastiveLearner:
             transformer.auto_model.config = original_model.config
             self._using_data_parallel = True
 
-        print(f"[ContrastiveLearner] 初始化完成")
-        print(f"  - 模型: {self.model._first_module().__class__.__name__}")
-        print(f"  - 设备: {self.device}")
+        print(f"[ContrastiveLearner] init")
+        print(f"  - model: {self.model._first_module().__class__.__name__}")
+        print(f"  - device: {self.device}")
         if self._using_data_parallel:
-            print(f"  - 多GPU: DataParallel ({torch.cuda.device_count()} GPUs)")
-        print(f"  - 温度参数: {self.temperature}")
+            print(f"  - multi-GPU: DataParallel ({torch.cuda.device_count()} GPUs)")
+        print(f"  - temperature: {self.temperature}")
 
     def _unwrap_data_parallel(self):
-        """训练结束后解除 DataParallel 包裹，恢复单 GPU 模型用于保存"""
+        """训完之后还原模型，DataParallel 包着的没法直接 save"""
         if self._using_data_parallel:
             transformer = self.model._first_module()
             transformer.auto_model = transformer.auto_model.module
             self._using_data_parallel = False
 
     def _save_loss_log(self, loss_history: list, epochs: int, data_name: str = "unknown"):
-        """将每个 epoch 的 loss 保存为 JSON 文件"""
+        """每个 epoch 的 loss 落盘 JSON，方便后面画曲线"""
         log_dir = Path("training_logs")
         log_dir.mkdir(exist_ok=True)
         log_data = {
@@ -152,41 +134,30 @@ class ContrastiveLearner:
         log_path = log_dir / f"{data_name}_loss.json"
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=2, ensure_ascii=False)
-        print(f"  Loss 日志已保存: {log_path}")
+        print(f"  loss 日志: {log_path}")
 
     def compute_contrastive_loss(self,
                                   embeddings1: torch.Tensor,
                                   embeddings2: torch.Tensor) -> torch.Tensor:
         """
-        计算 InfoNCE 对比损失
+        InfoNCE，双向都算一遍取平均。
 
-        Args:
-            embeddings1: 第一个视图的嵌入 [batch_size, embedding_dim]
-            embeddings2: 第二个视图的嵌入 [batch_size, embedding_dim]
-
-        Returns:
-            loss: 标量损失值
-
-        数学公式:
-            L = -log( exp(sim(z_i, z_i+) / τ) / Σ_j exp(sim(z_i, z_j) / τ) )
+        L = -log( exp(sim(z_i, z_i+) / tau) / sum_j exp(sim(z_i, z_j) / tau) )
         """
         batch_size = embeddings1.shape[0]
 
-        # 归一化 (使用余弦相似度)
+        # 归一化后用余弦相似度
         embeddings1 = F.normalize(embeddings1, dim=1)
         embeddings2 = F.normalize(embeddings2, dim=1)
 
-        # 计算相似度矩阵 [batch_size, batch_size]
+        # [B, B] 的相似度矩阵，正对在对角线上
         similarity_matrix = torch.mm(embeddings1, embeddings2.t()) / self.temperature
 
-        # labels = [0, 1, 2, ..., batch_size-1] (对角线位置)
         labels = torch.arange(batch_size, device=self.device)
 
-        # InfoNCE 损失
         loss_12 = F.cross_entropy(similarity_matrix, labels)
         loss_21 = F.cross_entropy(similarity_matrix.t(), labels)
 
-        # 平均两个方向的损失
         loss = (loss_12 + loss_21) / 2
 
         return loss
@@ -194,16 +165,6 @@ class ContrastiveLearner:
     def train_epoch(self,
                     dataloader: DataLoader,
                     optimizer: torch.optim.Optimizer) -> float:
-        """
-        训练一个 epoch
-
-        Args:
-            dataloader: 数据加载器
-            optimizer: 优化器
-
-        Returns:
-            avg_loss: 平均损失值
-        """
         self.model.train()
         total_loss = 0.0
         num_batches = 0
@@ -211,31 +172,26 @@ class ContrastiveLearner:
         pbar = tqdm(dataloader, desc="Training", leave=False)
 
         for view1_texts, view2_texts in pbar:
-            # 使用模型的编码方法,但需要保持梯度
-            # tokenize 并移到设备
+            # 必须保留梯度，所以不能直接走 model.encode
             view1_features = self.model.tokenize(view1_texts)
             view2_features = self.model.tokenize(view2_texts)
 
             view1_features = {k: v.to(self.device) for k, v in view1_features.items()}
             view2_features = {k: v.to(self.device) for k, v in view2_features.items()}
 
-            # 通过模型前向传播获取嵌入(保留梯度)
+            # 走前向，拿 sentence_embedding
             embeddings1 = self.model(view1_features)['sentence_embedding']
             embeddings2 = self.model(view2_features)['sentence_embedding']
 
-            # 计算对比损失
             loss = self.compute_contrastive_loss(embeddings1, embeddings2)
 
-            # 反向传播
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            # 记录
             total_loss += loss.item()
             num_batches += 1
 
-            # 更新进度条
             pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
         avg_loss = total_loss / num_batches
@@ -250,43 +206,27 @@ class ContrastiveLearner:
               sample_rate: float = 1.0,
               augmentation_methods1: List[str] = ['mask', 'shuffle'],
               augmentation_methods2: List[str] = ['dropout', 'synonym']) -> SentenceTransformer:
-        """
-        对比学习训练主流程
-
-        Args:
-            entities: 所有实体文本列表
-            epochs: 训练轮数
-            batch_size: 批大小
-            learning_rate: 学习率
-            warmup_steps: 预热步数
-            sample_rate: 采样率 (对于大数据集,可 < 1.0)
-            augmentation_methods1: 第一个视图的增强方法
-            augmentation_methods2: 第二个视图的增强方法
-
-        Returns:
-            finetuned_model: 微调后的模型
-        """
+        """自监督模式的训练入口"""
         print("\n" + "=" * 60)
-        print("开始对比学习训练")
+        print("self-supervised CL")
         print("=" * 60)
 
-        # 采样 (对于大数据集)
+        # 数据量大可以下采样
         if sample_rate < 1.0:
             sample_size = int(len(entities) * sample_rate)
             sampled_entities = np.random.choice(entities, sample_size, replace=False).tolist()
-            print(f"采样: {len(sampled_entities)} / {int(len(sampled_entities) / sample_rate)} ({sample_rate * 100:.1f}%)")
+            print(f"sample: {len(sampled_entities)} / {int(len(sampled_entities) / sample_rate)} ({sample_rate * 100:.1f}%)")
             entities = sampled_entities
 
-        print(f"训练配置:")
-        print(f"  - 实体数量: {len(entities)}")
-        print(f"  - Epochs: {epochs}")
-        print(f"  - Batch size: {batch_size}")
-        print(f"  - Learning rate: {learning_rate}")
-        print(f"  - Warmup steps: {warmup_steps}")
-        print(f"  - 增强方法 (View1): {augmentation_methods1}")
-        print(f"  - 增强方法 (View2): {augmentation_methods2}")
+        print(f"config:")
+        print(f"  - 实体数: {len(entities)}")
+        print(f"  - epochs: {epochs}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - lr: {learning_rate}")
+        print(f"  - warmup_steps: {warmup_steps}")
+        print(f"  - aug (view1): {augmentation_methods1}")
+        print(f"  - aug (view2): {augmentation_methods2}")
 
-        # 创建数据集和数据加载器
         dataset = ContrastiveDataset(
             entities,
             augmentation_methods1=augmentation_methods1,
@@ -296,17 +236,16 @@ class ContrastiveLearner:
             dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=0,  # 设为 0 避免多进程问题
+            num_workers=0,  # 多进程在 windows 上比较麻烦，干脆设 0
             pin_memory=True if self.device == 'cuda' else False
         )
 
-        # 优化器 (AdamW)
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=learning_rate
         )
 
-        # 学习率调度器 (带 warmup)
+        # warmup + 线性衰减
         total_steps = len(dataloader) * epochs
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer,
@@ -314,32 +253,28 @@ class ContrastiveLearner:
             else max(0.1, 1.0 - (step - warmup_steps) / (total_steps - warmup_steps))
         )
 
-        print(f"\n开始训练 (总步数: {total_steps})...\n")
+        print(f"\n开始训练 (total steps = {total_steps})...\n")
 
-        # 训练循环
         best_loss = float('inf')
         loss_history = []
         for epoch in range(epochs):
             avg_loss = self.train_epoch(dataloader, optimizer)
             loss_history.append(avg_loss)
 
-            # 学习率调度
             scheduler.step()
             current_lr = optimizer.param_groups[0]['lr']
 
             print(f"Epoch {epoch + 1}/{epochs} - Loss: {avg_loss:.4f} - LR: {current_lr:.6f}")
 
-            # 保存最佳模型
             if avg_loss < best_loss:
                 best_loss = avg_loss
-                print(f"  → 新的最佳损失: {best_loss:.4f}")
+                print(f"  -> new best loss: {best_loss:.4f}")
 
-        # 保存 loss 日志
         self._save_loss_log(loss_history, epochs)
 
         print("\n" + "=" * 60)
-        print("对比学习训练完成!")
-        print(f"最佳损失: {best_loss:.4f}")
+        print("done")
+        print(f"best loss: {best_loss:.4f}")
         print("=" * 60 + "\n")
 
         self._unwrap_data_parallel()
@@ -351,33 +286,19 @@ class ContrastiveLearner:
                          batch_size: int = 64,
                          learning_rate: float = 1e-5,
                          warmup_steps: int = 100) -> SentenceTransformer:
-        """
-        有监督对比学习训练 — 使用标注正对
-
-        Args:
-            data_path: 训练数据根目录
-            data_name: 数据集名称
-            epochs: 训练轮数
-            batch_size: 批大小
-            learning_rate: 学习率
-            warmup_steps: 预热步数
-
-        Returns:
-            finetuned_model: 微调后的模型
-        """
+        """有监督模式：从标注文件加载正对"""
         print("\n" + "=" * 60)
-        print("开始有监督对比学习训练")
+        print("supervised CL")
         print("=" * 60)
 
-        # 创建数据集和数据加载器
         dataset = SupervisedPairDataset(data_path, data_name)
 
-        print(f"训练配置:")
-        print(f"  - 正样本对数量: {len(dataset)}")
-        print(f"  - Epochs: {epochs}")
-        print(f"  - Batch size: {batch_size}")
-        print(f"  - Learning rate: {learning_rate}")
-        print(f"  - Warmup steps: {warmup_steps}")
+        print(f"config:")
+        print(f"  - 正对数: {len(dataset)}")
+        print(f"  - epochs: {epochs}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - lr: {learning_rate}")
+        print(f"  - warmup_steps: {warmup_steps}")
 
         dataloader = DataLoader(
             dataset,
@@ -387,13 +308,11 @@ class ContrastiveLearner:
             pin_memory=True if self.device == 'cuda' else False
         )
 
-        # 优化器 (AdamW)
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=learning_rate
         )
 
-        # 学习率调度器 (带 warmup)
         total_steps = len(dataloader) * epochs
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer,
@@ -401,16 +320,14 @@ class ContrastiveLearner:
             else max(0.1, 1.0 - (step - warmup_steps) / (total_steps - warmup_steps))
         )
 
-        print(f"\n开始训练 (总步数: {total_steps})...\n")
+        print(f"\n开始训练 (total steps = {total_steps})...\n")
 
-        # 训练循环
         best_loss = float('inf')
         loss_history = []
         for epoch in range(epochs):
             avg_loss = self.train_epoch(dataloader, optimizer)
             loss_history.append(avg_loss)
 
-            # 学习率调度
             scheduler.step()
             current_lr = optimizer.param_groups[0]['lr']
 
@@ -418,14 +335,13 @@ class ContrastiveLearner:
 
             if avg_loss < best_loss:
                 best_loss = avg_loss
-                print(f"  → 新的最佳损失: {best_loss:.4f}")
+                print(f"  -> new best loss: {best_loss:.4f}")
 
-        # 保存 loss 日志
         self._save_loss_log(loss_history, epochs, data_name=data_name)
 
         print("\n" + "=" * 60)
-        print("有监督对比学习训练完成!")
-        print(f"最佳损失: {best_loss:.4f}")
+        print("done (supervised)")
+        print(f"best loss: {best_loss:.4f}")
         print("=" * 60 + "\n")
 
         self._unwrap_data_parallel()
@@ -437,29 +353,17 @@ def contrastive_finetune(model: SentenceTransformer,
                          args,
                          cache_dir: str = "finetuned_models") -> SentenceTransformer:
     """
-    便捷函数: 对比学习微调（支持模型缓存）
-
-    供 main.py 调用
-
-    Args:
-        model: 预训练的 SentenceTransformer 模型
-        entities: 实体文本列表
-        args: 参数对象 (来自 args.py)
-        cache_dir: 缓存目录
-
-    Returns:
-        finetuned_model: 微调后的模型
+    自监督 CL 的入口。命中缓存就直接载权重，没命中就训练完再保存。
+    main.py 直接调这个。
     """
     import os
     from pathlib import Path
 
-    # 创建缓存目录
     cache_path = Path(cache_dir)
     cache_path.mkdir(exist_ok=True)
 
-    # 生成缓存文件名（基于数据集名称、模型类型和关键参数）
-    # 添加模型类型到缓存文件名，确保不同模型的缓存分开存储
-    # 为了向后兼容，minilm 模型不添加模型类型后缀
+    # 缓存名带数据集 / 模型类型 / 关键超参
+    # minilm 不加 model_type 后缀是为了向后兼容老缓存
     model_type = getattr(args, 'model_type', 'minilm')
     if model_type == "minilm":
         cache_filename = f"{args.data_name}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}"
@@ -467,30 +371,28 @@ def contrastive_finetune(model: SentenceTransformer,
         cache_filename = f"{args.data_name}_{model_type}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}"
     cache_model_path = cache_path / cache_filename
 
-    # 检查是否存在缓存模型
+    # 命中缓存 + 没要求重训
     if cache_model_path.exists() and not args.force_retrain:
         print("\n" + "=" * 60)
-        print("发现缓存的微调模型!")
+        print("命中缓存的微调模型")
         print("=" * 60)
-        print(f"  缓存路径: {cache_model_path}")
-        print(f"  数据集: {args.data_name}")
-        print(f"  跳过训练，直接加载模型...")
+        print(f"  path: {cache_model_path}")
+        print(f"  dataset: {args.data_name}")
+        print(f"  跳过训练，直接加载...")
         print("=" * 60 + "\n")
 
         try:
             _load_cached_weights(model, cache_model_path)
-            print(f"✅ 成功加载缓存模型权重: {cache_filename}\n")
+            print(f"载入成功: {cache_filename}\n")
             return model
         except Exception as e:
-            print(f"⚠️  加载缓存模型失败: {e}")
-            print("   将重新训练模型...\n")
+            print(f"载入失败: {e}")
+            print("回退到训练流程...\n")
 
-    # 如果没有缓存或加载失败，进行训练
     print("\n" + "=" * 60)
-    print("未找到缓存模型，开始训练...")
+    print("没有缓存，开始训练...")
     print("=" * 60 + "\n")
 
-    # 初始化学习器
     learner = ContrastiveLearner(
         base_model=model,
         temperature=args.cl_temperature,
@@ -508,16 +410,16 @@ def contrastive_finetune(model: SentenceTransformer,
         augmentation_methods2=['dropout']
     )
 
-    # 保存微调后的模型
+    # 写缓存
     print("\n" + "=" * 60)
-    print("保存微调模型到缓存...")
+    print("写入缓存...")
     print("=" * 60)
     try:
         finetuned_model.save(str(cache_model_path))
-        print(f"✅ 模型已保存: {cache_model_path}")
-        print(f"   下次运行将直接加载此模型（节省 ~15 分钟）")
+        print(f"saved: {cache_model_path}")
+        print(f"  下次同参数运行直接走缓存")
     except Exception as e:
-        print(f"⚠️  保存模型失败: {e}")
+        print(f"save 失败: {e}")
     print("=" * 60 + "\n")
 
     return finetuned_model
@@ -527,25 +429,14 @@ def supervised_contrastive_finetune(model: SentenceTransformer,
                                      args,
                                      cache_dir: str = "finetuned_models") -> SentenceTransformer:
     """
-    便捷函数: 有监督对比学习微调（支持模型缓存）
-
-    从 llm_training_data/{data_name}/labeled_pairs.json 加载标注正对进行训练。
-
-    Args:
-        model: 预训练的 SentenceTransformer 模型
-        args: 参数对象 (来自 args.py)
-        cache_dir: 缓存目录
-
-    Returns:
-        finetuned_model: 微调后的模型
+    有监督版本：标注正对从 llm_training_data/{data_name}/labeled_pairs.json 读。
+    缓存名加 _supervised 后缀，与自监督的隔开。
     """
     import os
 
-    # 创建缓存目录
     cache_path = Path(cache_dir)
     cache_path.mkdir(exist_ok=True)
 
-    # 生成缓存文件名（加 _supervised 后缀，与自监督模型分开存储）
     model_type = getattr(args, 'model_type', 'minilm')
     if model_type == "minilm":
         cache_filename = f"{args.data_name}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}_supervised"
@@ -553,30 +444,27 @@ def supervised_contrastive_finetune(model: SentenceTransformer,
         cache_filename = f"{args.data_name}_{model_type}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}_supervised"
     cache_model_path = cache_path / cache_filename
 
-    # 检查是否存在缓存模型
     if cache_model_path.exists() and not args.force_retrain:
         print("\n" + "=" * 60)
-        print("发现缓存的有监督微调模型!")
+        print("命中缓存的有监督微调模型")
         print("=" * 60)
-        print(f"  缓存路径: {cache_model_path}")
-        print(f"  数据集: {args.data_name}")
-        print(f"  跳过训练，直接加载模型...")
+        print(f"  path: {cache_model_path}")
+        print(f"  dataset: {args.data_name}")
+        print(f"  跳过训练，直接加载...")
         print("=" * 60 + "\n")
 
         try:
             _load_cached_weights(model, cache_model_path)
-            print(f"✅ 成功加载缓存模型权重: {cache_filename}\n")
+            print(f"载入成功: {cache_filename}\n")
             return model
         except Exception as e:
-            print(f"⚠️  加载缓存模型失败: {e}")
-            print("   将重新训练模型...\n")
+            print(f"载入失败: {e}")
+            print("回退到训练流程...\n")
 
-    # 如果没有缓存或加载失败，进行训练
     print("\n" + "=" * 60)
-    print("未找到缓存模型，开始有监督对比学习训练...")
+    print("没有缓存，开始有监督训练...")
     print("=" * 60 + "\n")
 
-    # 初始化学习器
     learner = ContrastiveLearner(
         base_model=model,
         temperature=args.cl_temperature,
@@ -592,28 +480,26 @@ def supervised_contrastive_finetune(model: SentenceTransformer,
         learning_rate=args.cl_learning_rate,
     )
 
-    # 保存微调后的模型
     print("\n" + "=" * 60)
-    print("保存有监督微调模型到缓存...")
+    print("写入缓存...")
     print("=" * 60)
     try:
         finetuned_model.save(str(cache_model_path))
-        print(f"✅ 模型已保存: {cache_model_path}")
-        print(f"   下次运行将直接加载此模型")
+        print(f"saved: {cache_model_path}")
+        print(f"  下次同参数运行直接走缓存")
     except Exception as e:
-        print(f"⚠️  保存模型失败: {e}")
+        print(f"save 失败: {e}")
     print("=" * 60 + "\n")
 
     return finetuned_model
 
 
-# ==================== 单元测试 ====================
+# 跑一遍看看
 if __name__ == '__main__':
     print("=" * 60)
-    print("测试对比学习模块")
+    print("contrastive learning self-check")
     print("=" * 60)
 
-    # 创建测试数据
     test_entities = [
         "Apple iPhone 8 Plus 64GB Silver",
         "Samsung Galaxy S8 64GB Black",
@@ -623,24 +509,22 @@ if __name__ == '__main__':
         "Huawei Mate 9 64GB Space Gray",
         "Apple iPhone 6S 16GB Gold",
         "Samsung Galaxy Note 8 64GB Black",
-    ] * 4  # 复制几次以增加数据量
+    ] * 4  # 凑点量
 
-    print(f"\n测试数据: {len(test_entities)} 个实体\n")
+    print(f"\n样本: {len(test_entities)} 条\n")
 
-    # 加载预训练模型
     print("加载预训练模型...")
     model = SentenceTransformer('all-MiniLM-L12-v2')
-    print(f"模型加载完成: {model._first_module().__class__.__name__}\n")
+    print(f"loaded: {model._first_module().__class__.__name__}\n")
 
-    # 创建对比学习训练器
     learner = ContrastiveLearner(
         base_model=model,
         temperature=0.07,
-        device='cpu'  # 使用 CPU 进行测试
+        device='cpu'
     )
 
-    # 测试对比损失计算
-    print("\n测试 1: 对比损失计算")
+    # 1) 损失算一下
+    print("\nstep 1: contrastive loss")
     print("-" * 40)
     test_batch = test_entities[:4]
     view1, view2 = [], []
@@ -653,13 +537,12 @@ if __name__ == '__main__':
     embeddings2 = model.encode(view2, convert_to_tensor=True)
 
     loss = learner.compute_contrastive_loss(embeddings1, embeddings2)
-    print(f"批次大小: {len(test_batch)}")
-    print(f"嵌入维度: {embeddings1.shape}")
-    print(f"对比损失: {loss.item():.4f}")
-    print("✅ 损失计算正常\n")
+    print(f"batch: {len(test_batch)}")
+    print(f"emb shape: {embeddings1.shape}")
+    print(f"loss: {loss.item():.4f}\n")
 
-    # 测试训练流程 (少量 epochs)
-    print("\n测试 2: 训练流程 (2 epochs)")
+    # 2) 跑两轮看看流程
+    print("\nstep 2: train (2 epochs)")
     print("-" * 40)
 
     finetuned_model = learner.train(
@@ -671,14 +554,14 @@ if __name__ == '__main__':
         augmentation_methods2=['shuffle']
     )
 
-    print("✅ 训练流程正常\n")
+    print("ok\n")
 
-    # 验证模型微调效果 (可选)
-    print("\n测试 3: 验证微调效果")
+    # 3) 简单看下相似度
+    print("\nstep 3: sanity check")
     print("-" * 40)
     test_entity = "Apple iPhone 8 Plus 64GB Silver"
-    similar_entity = "Apple iPhone 8 Plus 64 Gigabyte White"  # 相似实体
-    different_entity = "Samsung Galaxy S8 64GB Black"  # 不同实体
+    similar_entity = "Apple iPhone 8 Plus 64 Gigabyte White"
+    different_entity = "Samsung Galaxy S8 64GB Black"
 
     emb_test = model.encode(test_entity, convert_to_tensor=True)
     emb_similar = model.encode(similar_entity, convert_to_tensor=True)
@@ -687,17 +570,17 @@ if __name__ == '__main__':
     sim_similar = F.cosine_similarity(emb_test.unsqueeze(0), emb_similar.unsqueeze(0))
     sim_different = F.cosine_similarity(emb_test.unsqueeze(0), emb_different.unsqueeze(0))
 
-    print(f"测试实体: {test_entity}")
-    print(f"相似实体: {similar_entity}")
-    print(f"  相似度: {sim_similar.item():.4f}")
-    print(f"不同实体: {different_entity}")
-    print(f"  相似度: {sim_different.item():.4f}")
+    print(f"anchor: {test_entity}")
+    print(f"similar: {similar_entity}")
+    print(f"  sim: {sim_similar.item():.4f}")
+    print(f"different: {different_entity}")
+    print(f"  sim: {sim_different.item():.4f}")
 
     if sim_similar > sim_different:
-        print("✅ 相似实体的相似度更高 (符合预期)")
+        print("ok (similar > different)")
     else:
-        print("⚠️  可能需要更多训练 epochs")
+        print("可能要训更多 epoch")
 
     print("\n" + "=" * 60)
-    print("测试完成!")
+    print("done")
     print("=" * 60)

@@ -1,4 +1,4 @@
-"""前端辅助:数据集统计、日志解析、结果读取、参数预设。"""
+"""前端杂活：数据集统计、日志解析、结果读取、参数预设"""
 
 from __future__ import annotations
 
@@ -10,19 +10,17 @@ from typing import Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# tqdm 进度条行:"Loading:  10%|█  | 20/199 [..."
+# tqdm 进度条："Loading:  10%|...| 20/199 [..."
 _PROGRESS_RE = re.compile(r"^(.*?)\s*\d+%\|")
-# 百分比:"...  35%"
+# 末尾百分比："...  35%"
 _PCT_RE = re.compile(r"(\d{1,3})%")
-# [phase X/Y] 阶段标记(若后端打印)
+# 自定义阶段标 [phase X/Y]
 _PHASE_RE = re.compile(r"\[phase\s+(\d+)/(\d+)\]", re.IGNORECASE)
 
 
-# ---------------------------------------------------------------------------
 # 日志整理
-# ---------------------------------------------------------------------------
 def collapse_progress_lines(log_text: str) -> str:
-    """合并同一 tqdm 进度条的连续输出,只保留最后一行。"""
+    """同一条 tqdm 连续输出，只保留最后一帧"""
     lines = log_text.split("\n")
     kept: list[str] = []
     for line in lines:
@@ -37,7 +35,7 @@ def collapse_progress_lines(log_text: str) -> str:
 
 
 def parse_metrics_from_log(log_text: str) -> Dict[str, Optional[float]]:
-    """抓 [none] 标记对应的最后一条 P/R/F1。"""
+    """抓 [none] 标记下最后一组 P/R/F1"""
     out = {"P": None, "R": None, "F1": None}
     hits = re.findall(r"\[none\]\s*P=([\d.]+),\s*R=([\d.]+),\s*F1=([\d.]+)", log_text)
     if hits:
@@ -47,11 +45,9 @@ def parse_metrics_from_log(log_text: str) -> Dict[str, Optional[float]]:
 
 
 def parse_progress_from_log(log_text: str) -> Optional[int]:
-    """从主流程日志里估算一个 0-100 的进度。
+    """从主流程日志里挤出一个 0-100 的进度。
 
-    - 优先看 `[phase X/Y]` 标记(自定义阶段序号)。
-    - 其次看末尾一条 tqdm 的百分比,按 6 个阶段平均分配(启发式)。
-    - 都没有就返回 None。
+    优先级：[phase X/Y] > 末尾 tqdm 百分比 > None。
     """
     phase_hits = _PHASE_RE.findall(log_text)
     if phase_hits:
@@ -68,7 +64,7 @@ def parse_progress_from_log(log_text: str) -> Optional[int]:
 
 
 def parse_phase_times_from_log(log_text: str) -> Dict[str, float]:
-    """抓 `阶段名: 1.2345s` 形式的耗时。"""
+    """抓 `xxx: 1.2345s` 这种行的耗时"""
     pat = re.compile(r"(\w+):\s*([\d.]+)s")
     out: Dict[str, float] = {}
     for line in log_text.splitlines():
@@ -79,7 +75,7 @@ def parse_phase_times_from_log(log_text: str) -> Dict[str, float]:
 
 
 def parse_loss_from_log(log_text: str) -> List[Dict]:
-    """抓对比学习 loss 序列。"""
+    """抓对比学习日志里的 loss 序列"""
     rows: List[Dict] = []
     for line in log_text.splitlines():
         lm = re.search(r"loss[=:]\s*([\d.]+)", line)
@@ -93,11 +89,9 @@ def parse_loss_from_log(log_text: str) -> List[Dict]:
     return rows
 
 
-# ---------------------------------------------------------------------------
 # 数据集
-# ---------------------------------------------------------------------------
 def scan_datasets() -> List[str]:
-    """列出 data/ 下所有合法数据集(包含 table_0.csv)。"""
+    """data/ 下含 table_0.csv 的目录都算合法数据集"""
     d = PROJECT_ROOT / "data"
     if not d.exists():
         return []
@@ -108,7 +102,7 @@ def scan_datasets() -> List[str]:
 
 
 def _count_csv_rows(path: Path) -> int:
-    """高效统计 CSV 行数(除表头)。"""
+    """数行数（去掉表头）"""
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             return max(sum(1 for _ in f) - 1, 0)
@@ -126,7 +120,7 @@ def _read_csv_header(path: Path) -> List[str]:
 
 
 def get_dataset_stats(name: str) -> Dict:
-    """返回数据集摘要:表数/总记录数/属性列/是否已有 LLM 正例对。"""
+    """返回数据集摘要：表数、总行数、属性列、是否已有标注正对"""
     dpath = PROJECT_ROOT / "data" / name
     stats = {
         "name": name,
@@ -145,11 +139,10 @@ def get_dataset_stats(name: str) -> Dict:
     stats["tables"] = len(table_files)
     if table_files:
         stats["attrs"] = _read_csv_header(table_files[0])
-        # 大文件只对前 3 张表统计,避免 Person 这种 5M 的全扫
+        # 大表全扫太慢，前 3 张采样估算
         sample = table_files[:3]
         partial = sum(_count_csv_rows(p) for p in sample)
         if len(table_files) > len(sample):
-            # 按均值外推剩余表
             avg = partial / max(len(sample), 1)
             stats["records"] = int(partial + avg * (len(table_files) - len(sample)))
             stats["records_approx"] = True
@@ -176,32 +169,27 @@ def get_dataset_stats(name: str) -> Dict:
     return stats
 
 
-# ---------------------------------------------------------------------------
-# 数据集预设参数(从 src/data_chuli/dataset_configs.py 同步的简化版)
-# 只暴露 UI 需要展示的字段,避免把 dataclass 跨模块传来传去
-# ---------------------------------------------------------------------------
+# 数据集预设
+# src/data_chuli/dataset_configs.py 那份的简化镜像，只挑 UI 要显示的字段
 DATASET_PRESETS: Dict[str, Dict] = {
     "Geo":        {"col_sim_threshold": 0.8, "min_dis": 0.50, "selection_rate": 0.2, "k": 1, "note": "F1≈90.9"},
     "Music-20":   {"col_sim_threshold": 0.9, "min_dis": 0.35, "selection_rate": 0.2, "k": 1, "note": "F1≈90.2"},
     "Music-200":  {"col_sim_threshold": 0.9, "min_dis": 0.35, "selection_rate": 0.2, "k": 1, "note": "F1≈82.4"},
-    "Music-2000": {"col_sim_threshold": 0.8, "min_dis": 0.30, "selection_rate": 0.2, "k": 1, "note": "待调优"},
+    "Music-2000": {"col_sim_threshold": 0.8, "min_dis": 0.30, "selection_rate": 0.2, "k": 1, "note": "待调"},
     "Shopee":     {"col_sim_threshold": 0.9, "min_dis": 0.50, "selection_rate": 0.2, "k": 1, "note": "F1≈28.8"},
     "Person":     {"col_sim_threshold": 0.85,"min_dis": 0.40, "selection_rate": 0.2, "k": 1, "note": "大规模"},
 }
 
 
 def get_preset(name: str) -> Dict:
-    """取数据集预设;不存在时返回通用默认。"""
     return DATASET_PRESETS.get(name, {
         "col_sim_threshold": 0.8, "min_dis": 0.5, "selection_rate": 0.2, "k": 1, "note": "-",
     })
 
 
-# ---------------------------------------------------------------------------
 # 结果文件
-# ---------------------------------------------------------------------------
 def load_result_files() -> List[Dict]:
-    """读 results/*.json 汇总列表。"""
+    """results/*.json 汇总成列表"""
     rdir = PROJECT_ROOT / "results"
     if not rdir.exists():
         return []

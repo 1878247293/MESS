@@ -1,27 +1,27 @@
-"""数据集配置和生成器参数。"""
+"""数据集 schema 与生成器运行参数。"""
 
 from dataclasses import dataclass, field
 
 
 @dataclass
 class DatasetConfig:
-    """单个数据集的 schema 和格式描述。"""
+    """单数据集的 schema / 文本格式 / 字段约束"""
     name: str
-    columns: list  # CSV 中除 tid 外的列名
-    text_fields: list  # 用于 triplet 文本的字段（可能是 columns 的子集）
-    text_format: str  # triplet 文本模板，如 "name: {name}, longtitude: {longtitude}"
-    description: str  # 数据集描述，用于 LLM prompt
-    # entity group 中 canonical 字段名（可以有多个，如 Person 有 canonical_givenname 等）
+    columns: list  # 除 tid 之外的列名
+    text_fields: list  # 拼到 triplet 文本里的字段（可以是 columns 的子集）
+    text_format: str  # 文本模板，比如 "name: {name}, longtitude: {longtitude}"
+    description: str  # 给 prompt 用
+    # entity 组里的 canonical 字段（Person 之类有多个）
     canonical_fields: dict = field(default_factory=dict)
-    # entity group 中的额外分类字段（如 Geo 的 country, Shopee 的 category）
+    # 组级额外字段：Geo 的 country、Shopee 的 category 等
     group_extra_fields: list = field(default_factory=list)
-    # variant 中是否包含 style 字段
+    # variant 是否带 style 字段
     has_style: bool = True
-    # 默认每个 entity 的 variant 数量（等于表数量）
+    # 每个 entity 默认要几个 variant（一般 = 表数）
     default_variants: int = 4
 
 
-# 预定义数据集注册表
+# 已注册的数据集
 DATASET_REGISTRY = {
     "Geo": DatasetConfig(
         name="Geo",
@@ -91,36 +91,33 @@ DATASET_REGISTRY = {
 
 @dataclass
 class GeneratorConfig:
-    """生成器运行参数（唯一参数来源）。"""
-    backend: str = "api"  # LLM 后端: "ollama", "vllm" 或 "api"
-    api_url: str = "https://www.qqcode.cc"  # LLM API 地址
+    """生成器运行参数"""
+    backend: str = "api"  # ollama / vllm / api
+    api_url: str = "https://www.qqcode.cc"
     model: str = "gpt-5.2"
     api_key: str = "sk-CK6upo8GOzQPJX7h2Ypa0onrd00ZvtptfHpmWyv2Cur99l1v"
-    sample_size: int = 100  # 每表采样记录数（用于分析）
-    match_sample_size: int = 0  # 采样匹配组数
-    num_entities: int = 200  # 目标生成 entity group 数
-    batch_size: int = 4  # 每次 LLM 调用生成的 entity 数
+    sample_size: int = 100  # Stage 1 每表采样行数
+    match_sample_size: int = 0
+    num_entities: int = 200  # 目标 entity group 数
+    batch_size: int = 4  # 每次 LLM 调用产出多少 entity
     temperature: float = 0.7  # 生成阶段温度
     analysis_temperature: float = 0.3  # 分析阶段温度
     max_retries: int = 3
     seed: int = 42
-    timeout: int = 4800  # LLM 请求超时秒数
-    num_ctx: int = 65536  # 上下文窗口大小
-    max_workers: int = 4  # 并发生成线程数
-    # ── 分析阶段缓存复用开关 ──────────────────────────────────────────────
-    # False (默认): 每次都重新调用 LLM 分析数据并生成新提示词
-    # True: 若 analysis_cache_<model>.json 存在则直接复用,跳过 Stage 2
-    # CLI 中等价于 --reuse-analysis / --skip-analysis
+    timeout: int = 4800  # 单次请求超时
+    num_ctx: int = 65536  # 上下文窗口
+    max_workers: int = 4  # 并发线程
+    # 分析缓存：默认每次都重新跑；置 True 时若 analysis_cache_<model>.json 存在就直接用
+    # CLI 上对应 --reuse-analysis / --skip-analysis
     reuse_analysis_cache: bool = False
 
 
 def get_dataset_config(name: str) -> DatasetConfig:
-    """获取数据集配置，如果不在注册表中则返回 None。"""
     return DATASET_REGISTRY.get(name)
 
 
 def auto_detect_config(name: str, columns: list) -> DatasetConfig:
-    """从 CSV 列名自动生成配置（用于未注册数据集）。"""
+    """没注册过的数据集，按列名硬塞一份默认配置出来"""
     text_fields = [c for c in columns if c != "tid"]
     text_format = ", ".join(f"{c}: {{{c}}}" for c in text_fields)
     return DatasetConfig(

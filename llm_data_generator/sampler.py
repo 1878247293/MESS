@@ -1,4 +1,4 @@
-"""数据采样：加载 CSV 表、解析 ground_truth、采样记录和匹配组。"""
+"""数据准备：读 CSV、采样、把样本拼成 prompt 文本。"""
 
 import random
 from pathlib import Path
@@ -7,36 +7,23 @@ import pandas as pd
 
 
 def load_tables(data_dir: str) -> list:
-    """加载目录下所有 table_*.csv 文件，按编号排序。
-
-    Returns:
-        list[pd.DataFrame]: 各表的 DataFrame 列表
-    """
+    """读 data_dir 下所有 table_*.csv，按编号排序"""
     data_path = Path(data_dir)
     csv_files = sorted(data_path.glob("table_*.csv"),
                        key=lambda p: int(p.stem.split("_")[1]))
     if not csv_files:
-        raise FileNotFoundError(f"在 {data_dir} 下未找到 table_*.csv 文件")
+        raise FileNotFoundError(f"{data_dir} 下没有 table_*.csv")
 
     tables = []
     for f in csv_files:
         df = pd.read_csv(f, dtype=str, keep_default_na=False)
         tables.append(df)
-        print(f"  加载 {f.name}: {len(df)} 行, 列: {list(df.columns)}")
+        print(f"  read {f.name}: {len(df)} rows, cols={list(df.columns)}")
     return tables
 
 
 def sample_records(tables: list, sample_size: int, seed: int = 42) -> list:
-    """从每表中随机抽取 sample_size 条记录。
-
-    Args:
-        tables: DataFrame 列表
-        sample_size: 每表抽取数量
-        seed: 随机种子
-
-    Returns:
-        list[pd.DataFrame]: 每表的采样结果
-    """
+    """每张表抽 sample_size 行，返回新的 df 列表"""
     rng = random.Random(seed)
     sampled = []
     for i, df in enumerate(tables):
@@ -47,7 +34,7 @@ def sample_records(tables: list, sample_size: int, seed: int = 42) -> list:
 
 def format_samples_for_prompt(sampled_tables: list, columns: list,
                               max_per_table: int = 30) -> str:
-    """将采样记录格式化为 LLM prompt 中的文本。"""
+    """把每张表的前 max_per_table 行拼成 prompt 用的纯文本"""
     parts = []
     for i, df in enumerate(sampled_tables):
         rows_text = []

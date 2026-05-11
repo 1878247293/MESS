@@ -1,4 +1,4 @@
-"""CLI 入口：编排 采样 → 分析 → 生成 → 格式化 全流程。"""
+"""CLI 入口：把 sample → analyze → generate → format 串起来。"""
 
 import argparse
 import json
@@ -20,7 +20,7 @@ from .token_tracker import TokenTracker
 
 
 def parse_args():
-    _D = GeneratorConfig()  # 默认值唯一来源
+    _D = GeneratorConfig()  # 默认值的唯一来源
     parser = argparse.ArgumentParser(
         description="LLM 驱动的实体匹配训练数据生成器",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -70,22 +70,22 @@ def parse_args():
                         help=f"随机种子 (默认: {_D.seed})")
     parser.add_argument("--analyze-only", action="store_true",
                         help="只做分析不生成")
-    # 分析缓存复用开关(互斥两个别名,任何一个打开都等价)
+    # 缓存复用开关：两个互斥别名，任意一个都行
     reuse_group = parser.add_mutually_exclusive_group()
     reuse_group.add_argument(
         "--reuse-analysis", dest="reuse_analysis", action="store_true",
         default=None,
-        help="复用已有的分析提示词缓存(analysis_cache_<model>.json),跳过 Stage 2。"
-             "缓存不存在时仍会执行分析。默认关闭:每次都重新分析。",
+        help="如果 analysis_cache_<model>.json 已存在就直接复用，跳过 Stage 2。"
+             "缓存不存在时仍会执行分析。默认每次都重新分析。",
     )
     reuse_group.add_argument(
         "--skip-analysis", dest="reuse_analysis", action="store_true",
         default=None,
-        help="同 --reuse-analysis,保留的旧参数名。",
+        help="--reuse-analysis 的旧名字，等价。",
     )
     reuse_group.add_argument(
         "--force-analysis", dest="reuse_analysis", action="store_false",
-        help="强制重新分析(显式关闭缓存复用,即使缓存存在也会重新调 LLM)。",
+        help="即使缓存存在也重跑一次。",
     )
     parser.add_argument("--max-retries", type=int, default=_D.max_retries,
                         help=f"LLM 调用最大重试次数 (默认: {_D.max_retries})")
@@ -99,7 +99,7 @@ def parse_args():
 
 
 def _create_client(gen_config: GeneratorConfig, token_tracker=None):
-    """根据 backend 创建对应的 LLM 客户端。"""
+    """根据 backend 拿到对应的 client"""
     client_kwargs = dict(
         base_url=gen_config.api_url,
         model=gen_config.model,
@@ -124,70 +124,66 @@ def process_dataset(dataset_name: str, gen_config: GeneratorConfig,
                     data_dir_root: str, output_dir_root: str,
                     analyze_only: bool = False, reuse_analysis: bool = False,
                     global_tracker: TokenTracker = None):
-    """处理单个数据集的完整流程。
+    """跑单个数据集的完整流程
 
     Args:
-        reuse_analysis: 若为 True 且 analysis_cache 已存在,则跳过 Stage 2
-                        直接复用缓存的分析提示词;缓存不存在时仍会执行分析。
-                        默认 False,每次重新分析。
-        global_tracker: 全局 TokenTracker(跨数据集累计),可选
+        reuse_analysis: 命中缓存就跳 Stage 2；不命中仍然要分析
+        global_tracker: 全局 TokenTracker（跨数据集累积）
     """
     print(f"\n{'=' * 60}")
     print(f"处理数据集: {dataset_name}")
     print(f"{'=' * 60}")
 
-    # 1. 加载配置
+    # 1. config
     config = get_dataset_config(dataset_name)
     data_dir = Path(data_dir_root) / dataset_name
     output_dir = Path(output_dir_root) / dataset_name
 
     if not data_dir.exists():
-        print(f"  错误: 数据目录不存在 {data_dir}")
+        print(f"  数据目录不存在: {data_dir}")
         return
 
-    # 2. 加载数据
-    print("\nStage 1: 数据采样...")
+    # 2. 数据
+    print("\nStage 1: 采样...")
     tables = load_tables(str(data_dir))
 
-    # 如果配置不存在，自动检测
+    # 没注册的就按列名硬塞
     if config is None:
         columns = [c for c in tables[0].columns if c != "tid"]
         config = auto_detect_config(dataset_name, columns)
-        print(f"  自动检测配置: 列={columns}")
+        print(f"  auto-detect 列: {columns}")
 
-    # 采样
     sampled = sample_records(tables, gen_config.sample_size, gen_config.seed)
 
-    # 3. 初始化 LLM 客户端（使用全局 tracker 或创建独立 tracker）
+    # 3. client（用全局 tracker 或自己起一个）
     tracker = global_tracker if global_tracker is not None else TokenTracker(model=gen_config.model)
     client, backend_label = _create_client(gen_config, token_tracker=tracker)
 
     if not client.check_connection():
-        print(f"\n  错误: 无法连接到 {backend_label} ({gen_config.api_url})")
+        print(f"\n  连不上 {backend_label} ({gen_config.api_url})")
         return
 
     available_models = client.list_models()
     if available_models and gen_config.model not in available_models:
-        print(f"  警告: 模型 '{gen_config.model}' 可能未安装")
-        print(f"  可用模型: {', '.join(available_models)}")
+        print(f"  注意: 模型 '{gen_config.model}' 不在可用列表中")
+        print(f"  可用: {', '.join(available_models)}")
 
-    # 模型名清理（用于文件名）
+    # 模型名带 / 或 : 不能直接当文件名
     model_tag = gen_config.model.replace("/", "-").replace(":", "-")
 
-    # 4. 分析提示词 —— 四种情况分别处理并明确告知
+    # 4. 分析阶段：四种组合
     analysis_cache = output_dir / f"analysis_cache_{model_tag}.json"
     cache_exists = analysis_cache.exists()
 
     if reuse_analysis and cache_exists:
-        # ① 开关打开 + 缓存存在 → 直接复用
-        print(f"\nStage 2: [复用缓存] 跳过分析,加载已有提示词")
-        print(f"  ← {analysis_cache}")
-        print(f"  提示:如需重新生成提示词,去掉 --reuse-analysis 或加 --force-analysis")
+        # ① 开关开 + 有缓存 -> 直接用
+        print(f"\nStage 2: [复用缓存] 跳过分析")
+        print(f"  <- {analysis_cache}")
+        print(f"  想重跑就去掉 --reuse-analysis 或加 --force-analysis")
         analysis = load_analysis(str(analysis_cache))
     elif reuse_analysis and not cache_exists:
-        # ② 开关打开 + 缓存不存在 → 仍需执行分析
-        print(f"\nStage 2: [缓存未命中] --reuse-analysis 已设置,但缓存不存在,将执行首次分析")
-        print(f"  缓存将写入 {analysis_cache}")
+        # ② 开关开 + 无缓存 -> 仍要跑一次
+        print(f"\nStage 2: [缓存未命中] 首次分析，结果会写入 {analysis_cache}")
         client._current_stage = "analysis"
         analysis = analyze_dataset(
             client, config, sampled, len(tables), gen_config
@@ -195,9 +191,9 @@ def process_dataset(dataset_name: str, gen_config: GeneratorConfig,
         output_dir.mkdir(parents=True, exist_ok=True)
         save_analysis(analysis, str(analysis_cache))
     elif not reuse_analysis and cache_exists:
-        # ③ 开关关闭 + 缓存存在 → 重新分析并覆盖缓存
-        print(f"\nStage 2: [重新分析] 缓存存在但未启用复用,将覆盖 {analysis_cache}")
-        print(f"  提示:若希望直接使用已有提示词,改用 --reuse-analysis")
+        # ③ 开关关 + 有缓存 -> 重跑覆盖
+        print(f"\nStage 2: [重跑] 覆盖 {analysis_cache}")
+        print(f"  想直接复用就改用 --reuse-analysis")
         client._current_stage = "analysis"
         analysis = analyze_dataset(
             client, config, sampled, len(tables), gen_config
@@ -205,8 +201,8 @@ def process_dataset(dataset_name: str, gen_config: GeneratorConfig,
         output_dir.mkdir(parents=True, exist_ok=True)
         save_analysis(analysis, str(analysis_cache))
     else:
-        # ④ 开关关闭 + 缓存不存在 → 首次分析
-        print(f"\nStage 2: [首次分析] 缓存不存在,执行完整分析流程")
+        # ④ 开关关 + 无缓存 -> 首次分析
+        print(f"\nStage 2: [首次分析]")
         client._current_stage = "analysis"
         analysis = analyze_dataset(
             client, config, sampled, len(tables), gen_config
@@ -228,10 +224,10 @@ def process_dataset(dataset_name: str, gen_config: GeneratorConfig,
     )
 
     if not entity_groups:
-        print("  错误: 未能生成任何 entity groups")
+        print("  没生成出任何 entity group")
         return
 
-    # 6. 格式化并保存
+    # 6. 拼正样本对、落盘
     print("\nStage 4: 构建正样本对并保存...")
     pairs, metadata = build_pairs(
         entity_groups, config, gen_config.seed,
@@ -240,19 +236,18 @@ def process_dataset(dataset_name: str, gen_config: GeneratorConfig,
     output_path = output_dir / f"{dataset_name}_{model_tag}.json"
     save_output(entity_groups, pairs, metadata, str(output_path))
 
-    # 输出摘要
-    print(f"\n{'─' * 40}")
+    print(f"\n{'-' * 40}")
     print(f"完成: {dataset_name}")
     print(f"  Entity groups: {len(entity_groups)}")
     print(f"  正样本对: {len(pairs)}")
-    print(f"  输出文件: {output_path}")
-    print(f"{'─' * 40}")
+    print(f"  输出: {output_path}")
+    print(f"{'-' * 40}")
 
 
 def main():
     args = parse_args()
 
-    # 从 CLI 参数构建统一配置
+    # CLI -> GeneratorConfig
     gen_config = GeneratorConfig(
         backend=args.backend,
         api_url=args.api_url,
@@ -270,13 +265,13 @@ def main():
         max_workers=args.max_workers,
     )
 
-    # 解析缓存复用开关:CLI 未显式指定时用 config 默认值
+    # CLI 没显式给就用 config 默认
     reuse_analysis = (
         args.reuse_analysis
         if args.reuse_analysis is not None
         else gen_config.reuse_analysis_cache
     )
-    gen_config.reuse_analysis_cache = reuse_analysis  # 回写便于下游读取
+    gen_config.reuse_analysis_cache = reuse_analysis
 
     print("=" * 60)
     print("LLM 训练数据生成器")
@@ -284,7 +279,7 @@ def main():
     print(f"  模型: {gen_config.model}")
     print(f"  API:  {gen_config.api_url}")
     print(f"  目标: {gen_config.num_entities} entity groups")
-    print(f"  分析缓存: {'复用(若存在)' if reuse_analysis else '每次重新生成'}")
+    print(f"  分析缓存: {'复用(若存在)' if reuse_analysis else '每次重跑'}")
     print("=" * 60)
 
     if args.dataset == "all":
@@ -292,7 +287,7 @@ def main():
     else:
         datasets = [args.dataset]
 
-    # 全局 Token 统计器 — 跨所有数据集累计
+    # 跨数据集的 token 累计
     global_tracker = TokenTracker(model=gen_config.model)
 
     for dataset_name in datasets:
@@ -304,18 +299,18 @@ def main():
                 global_tracker=global_tracker,
             )
         except Exception as e:
-            print(f"\n  处理 {dataset_name} 时出错: {e}")
+            print(f"\n  {dataset_name} 出错: {e}")
             import traceback
             traceback.print_exc()
 
-    # 全流程结束：输出总用量并保存
+    # 总用量
     global_tracker.report()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model_tag = gen_config.model.replace("/", "-").replace(":", "-")
     global_tracker.save(str(output_dir / f"total_token_stats_{model_tag}.json"))
 
-    print("全部完成！")
+    print("done")
 
 
 if __name__ == "__main__":

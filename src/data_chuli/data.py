@@ -35,11 +35,10 @@ def read_table(data_path: Path, selected_attrs=None, sample_rate=1.0):
         table = pd.read_csv(
             data_path, dtype={"postcode": str}, usecols=selected_attrs)
 
-    # 对数据集进行采样(用于减少内存占用)
+    # 大表内存吃不消时下采样
     if sample_rate < 1.0:
         table = table.sample(frac=sample_rate, random_state=3407).reset_index(drop=True)
-        # 关键修复: 重新映射 tid 列,使其从 0 开始连续编号
-        # 这样 tid 可以直接作为 embeddings 数组的索引
+        # 关键：tid 必须重映射成 0..n 连续，下游会拿 tid 直接当 embeddings 数组的下标
         table['tid'] = range(len(table))
         log(f"  采样率: {sample_rate:.2f}, 采样后: {len(table)} 行")
 
@@ -49,7 +48,7 @@ def read_table(data_path: Path, selected_attrs=None, sample_rate=1.0):
 def read_all_tables(data_path: Path, num=-1, selected_attrs=None, sample_rate=1.0) -> Tuple[int, List[pd.DataFrame]]:
     log(f"selected_attrs: {selected_attrs}")
     if sample_rate < 1.0:
-        log(f"⚠️  数据集采样模式: 采样率 = {sample_rate:.2f}")
+        log(f"采样模式: rate = {sample_rate:.2f}")
     i = 0
     tables = []
     while (data_path / f"table_{i}.csv").is_file():
@@ -72,22 +71,13 @@ def read_pair_ground_truth(data_path: Path, i: int, j: int) -> List[Tuple[int]]:
 
 
 def textify_table(table: pd.DataFrame):
-    """
-    将表转换为文本列表
-
-    Args:
-        table: 数据表
-
-    Returns:
-        sentences: 文本列表
-    """
-    # 检查是否有除 tid 外的列
+    """把整张表拍成一列字符串，每行拼成一句"""
+    # 只剩 tid 一列时，没法拼属性，就退化成 entity_<tid>
     if table.shape[1] <= 1:
-        # 只有 tid 列，使用 tid 作为文本
         log("Warning: only tid column, using tid as entity text")
         sentences = table.iloc[:, 0].astype(str).apply(lambda x: "entity_" + x).tolist()
     else:
-        # 正常情况：拼接第2列及之后的列
+        # 正常情况：除 tid 外的列拼起来
         sentences = table.iloc[:, 1:] \
             .astype(str) \
             .apply(lambda x: x + " ", axis=0) \
