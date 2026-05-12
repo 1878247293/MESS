@@ -55,22 +55,16 @@ Run the main pipeline on a dataset:
 python main.py --data-name Geo --model-type minilm --lm-model-or-path model/all-MiniLM-L12-v2
 ```
 
-Run supervised contrastive fine-tuning:
+Run contrastive fine-tuning:
 
 ```bash
-python train_contrastive.py --data-name Geo --model-type minilm --lm-model-or-path model/all-MiniLM-L12-v2 --cl-mode supervised --cl-epochs 10
+python train_contrastive.py --data-name Geo --model-type minilm --lm-model-or-path model/all-MiniLM-L12-v2 --cl-epochs 10
 ```
 
-This mode requires:
+This requires:
 
 ```text
 llm_training_data/<dataset>/labeled_pairs.json
-```
-
-Run self-supervised contrastive fine-tuning:
-
-```bash
-python train_contrastive.py --data-name Geo --model-type minilm --lm-model-or-path model/all-MiniLM-L12-v2 --cl-mode self-supervised --cl-epochs 10
 ```
 
 ## Web UI

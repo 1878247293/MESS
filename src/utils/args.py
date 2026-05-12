@@ -52,7 +52,6 @@ class MainArgs:
 
     # 对比学习
     use_contrastive_learning: bool = False
-    cl_mode: str = "self-supervised"           # self-supervised 或 supervised
     cl_training_data_dir: str = "llm_training_data"
     cl_epochs: int = 10
     cl_batch_size: int = 64

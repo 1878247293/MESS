@@ -24,7 +24,6 @@ def _status(running: bool, cur: int = 0, total: int = 0, msg: str = "") -> str:
 def run_contrastive(
     data_name,
     model_type,
-    cl_mode,
     cl_epochs,
     cl_batch_size,
     cl_learning_rate,
@@ -34,7 +33,6 @@ def run_contrastive(
     params = dict(
         data_name=data_name,
         model_type=model_type,
-        cl_mode=cl_mode,
         cl_epochs=int(cl_epochs),
         cl_batch_size=int(cl_batch_size),
         cl_learning_rate=cl_learning_rate,
@@ -91,12 +89,6 @@ def create_tab():
             gr.HTML('<div class="section-h"><span class="idx">01</span>训练配置</div>')
             data_name = gr.Dropdown(choices=datasets, value=datasets[0], label="数据集")
             model_type = gr.Dropdown(choices=["modernbert", "minilm"], value="modernbert", label="骨干模型")
-            cl_mode = gr.Radio(
-                choices=["self-supervised", "supervised"],
-                value="self-supervised",
-                label="训练模式",
-                info="self-supervised 仅依赖生成正例，supervised 使用真实标签。",
-            )
             with gr.Row():
                 cl_epochs = gr.Slider(1, 100, value=10, step=1, label="Epochs")
                 cl_batch_size = gr.Number(value=64, precision=0, label="Batch Size")
@@ -141,7 +133,6 @@ def create_tab():
         inputs=[
             data_name,
             model_type,
-            cl_mode,
             cl_epochs,
             cl_batch_size,
             cl_learning_rate,
