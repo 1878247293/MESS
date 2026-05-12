@@ -82,7 +82,6 @@ def run_main_flow(
     data_name,
     model_type,
     use_smart_pairing,
-    smart_pairing_strategy,
     col_sim_threshold,
     min_dis,
     k,
@@ -95,7 +94,6 @@ def run_main_flow(
         data_name=data_name,
         model_type=model_type,
         use_smart_pairing=use_smart_pairing,
-        smart_pairing_strategy=smart_pairing_strategy,
         col_sim_threshold=col_sim_threshold,
         min_dis=min_dis,
         k=k,
@@ -191,11 +189,6 @@ def create_tab():
 
             with gr.Accordion("高级设置", open=False):
                 use_smart_pairing = gr.Checkbox(value=False, label="启用语义感知调度")
-                smart_pairing_strategy = gr.Radio(
-                    choices=["similarity", "optimal", "complementary"],
-                    value="optimal",
-                    label="调度策略",
-                )
                 k = gr.Number(value=1, precision=0, label="KNN k")
                 selection_rate = gr.Slider(0, 1, value=0.2, step=0.05, label="采样率")
                 run_in_parallel = gr.Checkbox(value=False, label="并行合并")
@@ -235,7 +228,6 @@ def create_tab():
             data_name,
             model_type,
             use_smart_pairing,
-            smart_pairing_strategy,
             col_sim_threshold,
             min_dis,
             k,

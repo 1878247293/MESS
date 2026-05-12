@@ -240,7 +240,7 @@ if __name__ == '__main__':
 
     # 合并阶段
     if args.use_smart_pairing:
-        log(f"Using smart table pairing, strategy: {args.smart_pairing_strategy}")
+        log("Using smart table pairing")
         if args.run_in_parallel:
             table = merge_parallel_with_smart_pairing(tables, all_embeddings, args)
         else:

@@ -253,12 +253,8 @@ def merge_parallel(tables: List[Table], all_embeddings: np.array, args: MainArgs
 # 智能配对版本
 
 def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
-    """
-    用 SmartTablePairing 替代随机 shuffle 的串行版合并。
-    args 里需要带 smart_pairing_strategy。
-    """
-    strategy = getattr(args, 'smart_pairing_strategy', 'similarity')
-    pairing = SmartTablePairing(strategy=strategy)
+    """用 SmartTablePairing 替代随机 shuffle 的串行版合并。"""
+    pairing = SmartTablePairing()
 
     cur_tables = [deepcopy(table) for table in tables]
     result_logger = getattr(args, 'result_logger', None)
@@ -322,8 +318,7 @@ def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args
 
 def merge_parallel_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
     """智能配对 + 并行合并版本"""
-    strategy = getattr(args, 'smart_pairing_strategy', 'similarity')
-    pairing = SmartTablePairing(strategy=strategy)
+    pairing = SmartTablePairing()
 
     cur_tables = [deepcopy(table) for table in tables]
     result_logger = getattr(args, 'result_logger', None)

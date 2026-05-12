@@ -29,7 +29,6 @@ class MainArgs:
 
     # 智能表配对
     use_smart_pairing: bool = False
-    smart_pairing_strategy: str = "optimal"  # similarity / optimal / complementary
 
     # 模型
     # minilm 或 modernbert，路径默认本地
