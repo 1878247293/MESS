@@ -1,3 +1,12 @@
+"""
+资源监控。
+
+`ResourceMonitor` 后台线程定时采样进程 RSS（含子进程）+ `torch.cuda.max_memory_reserved`，
+stop 后返回一个 `ResourceUsage`（wall-clock + RAM/VRAM 峰值）。
+`ensure_stage_metrics / update_stage_metrics` 维护一个按阶段累积的资源字典，挂在
+args 上跨阶段聚合（attribute_selection / table_pairing / hierarchical_merging）。
+"""
+
 import threading
 import time
 from dataclasses import dataclass

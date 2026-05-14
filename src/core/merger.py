@@ -1,3 +1,18 @@
+"""
+分层两两合并。
+
+N 张表 → N/2 → N/4 → … → 1。每一层挑配对方式（随机 / 智能配对）和执行方式
+（串行 / joblib 并行），4 个组合各暴露一个入口函数：
+- `merge` —— 串行 + 随机
+- `merge_parallel` —— 并行 + 随机
+- `merge_with_smart_pairing` —— 串行 + SmartTablePairing
+- `merge_parallel_with_smart_pairing` —— 并行 + SmartTablePairing
+
+核心是 `merge_ij(table_i, table_j, ...)`：双向 mutual KNN 找匹配 tuple 对
+（默认 HNSW + 双向交集；`--use-efficient-matching` 切到 `efficient_matcher` 的
+numpy 向量化实现），距离 ≤ args.min_dis 的留下来，匹配上的 tuple 合并，剩下的延续 tuple_id。
+"""
+
 from typing import List
 from copy import deepcopy
 from collections import defaultdict

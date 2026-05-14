@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import gradio as gr
 
 from web.tabs import tab_contrastive, tab_llm_gen, tab_main_flow, tab_results
+
+
+def ensure_supported_gradio() -> None:
+    version_text = getattr(gr, "__version__", "unknown")
+    major_text = version_text.split(".", 1)[0]
+    try:
+        major = int(major_text)
+    except ValueError:
+        return
+    if major >= 6:
+        raise RuntimeError(
+            "Unsupported gradio version detected: "
+            f"{version_text}. This project requires gradio>=4.44,<6. "
+            "Reinstall with: pip install \"gradio>=4.44,<6\""
+        )
+
+
+def ensure_localhost_no_proxy() -> None:
+    bypass_hosts = ["127.0.0.1", "localhost"]
+    for key in ("NO_PROXY", "no_proxy"):
+        current = os.environ.get(key, "")
+        parts = [part.strip() for part in current.split(",") if part.strip()]
+        for host in bypass_hosts:
+            if host not in parts:
+                parts.append(host)
+        os.environ[key] = ",".join(parts)
 
 
 CUSTOM_CSS = """
@@ -675,6 +702,8 @@ def create_app() -> gr.Blocks:
         title="SAGEM Workbench",
         analytics_enabled=False,
         fill_width=True,
+        theme=THEME,
+        css=CUSTOM_CSS,
     ) as app:
         gr.HTML(HERO_HTML)
 
@@ -694,5 +723,7 @@ def create_app() -> gr.Blocks:
 
 
 if __name__ == "__main__":
+    ensure_supported_gradio()
+    ensure_localhost_no_proxy()
     app = create_app()
-    app.launch(server_name="127.0.0.1", server_port=7860, theme=THEME, css=CUSTOM_CSS)
+    app.launch(server_name="127.0.0.1", server_port=7860)

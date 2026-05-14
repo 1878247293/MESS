@@ -1,3 +1,14 @@
+"""
+命令行参数定义与解析（基于 tyro）。
+
+`MainArgs` 是单一 dataclass，覆盖：数据路径、属性选择、合并、并行、智能配对、对比学习、
+模型选择、候选输出等所有主流程开关。`build_main_args()` 在解析后还做这些自动化：
+- 按 `data_name` 套用 `dataset_configs.py` 里的最优参数（用户显式给的不动）；
+- `model_type` → 本地权重路径自动映射；
+- HF cache 风格目录自动解析到 `snapshots/<rev>`；
+- 按模型类型设默认 `max_seq_length` / `batch_size`。
+"""
+
 import os
 from dataclasses import dataclass
 

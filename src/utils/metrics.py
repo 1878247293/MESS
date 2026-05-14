@@ -1,3 +1,12 @@
+"""
+评估指标。
+
+- `evaluate_f1` —— tuple 集合层面 P/R/F1。
+- `evaluate_pair_f1` —— 把 tuple 拆成两两组合再算 F1，衡量"对的配上没"。
+- `evaluate_f1_with_output` —— 在算 F1 的同时把预测分组分四类（完全正确 / 漏匹配 /
+  误匹配-超集 / 误匹配-其他）写到 txt，方便人工排查。
+"""
+
 from dataclasses import dataclass
 from itertools import combinations, chain
 from typing import Optional, List, Tuple

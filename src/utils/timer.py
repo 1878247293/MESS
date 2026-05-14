@@ -1,3 +1,5 @@
+"""最小计时器：`Timer.start()` / `Timer.stop()` 返回秒。被合并器、属性选择等各阶段穿插使用。"""
+
 import time
 
 

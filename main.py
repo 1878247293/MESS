@@ -1,3 +1,14 @@
+"""
+主流程入口：跑一次完整的实体匹配流水线。
+
+阶段顺序：参数解析 → 属性选择（带缓存）→ 重读选中列 → SentenceTransformer 编码 →
+（可选）SmartTablePairing 配对 → 分层两两合并 → 计算 P/R/F1 + 错误分组 → 写
+results/。每阶段都用 ResourceMonitor 采样 wall-clock / RAM / VRAM 峰值。
+
+依赖入口：args.build_main_args、data.read_all_tables、selector.auto_selection、
+merger.merge*、metrics.evaluate_log_with_output、result_logger.ResultLogger。
+"""
+
 from typing import List
 from itertools import chain
 from pathlib import Path

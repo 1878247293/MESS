@@ -1,3 +1,11 @@
+"""
+跨模块复用的小工具。
+
+- `knn_search` —— hnswlib 近邻查询的薄包装（合并阶段用）。
+- `shuffle` —— 带 seed 的 list shuffle（保证多次跑的随机配对一致）。
+- `element_wise_cosine_sim` —— 两个矩阵逐行余弦相似度，属性选择和评估都用。
+"""
+
 import random
 
 import hnswlib

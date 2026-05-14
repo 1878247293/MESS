@@ -1,3 +1,14 @@
+"""
+属性选择（EER, Embedding Equivalence Removal）。
+
+主流程的第一阶段。目的：剔除对实体身份没影响的列（如随机 ID），只保留真正能区分
+实体的属性，减小后续 KNN 搜索的噪声。
+
+做法：对每个候选列，把该列整列打乱后重新编码整张表，与原始编码做逐行 cosine。
+如果均值相似度 `mean_sim ≤ col_sim_threshold`，说明这列被打乱后行向量变化大，
+对身份重要，保留；否则丢弃。结果可以被 selector_cache 缓存复用。
+"""
+
 from typing import List
 import os
 

@@ -1,3 +1,10 @@
+"""
+loguru 日志封装。
+
+init_logger 同时挂两个 handler：终端只输出 INFO+ 且屏蔽 API 调试噪声，文件保留
+DEBUG 全量。`log` / `log_args` / `log_time` 是 INFO 级薄包装。
+"""
+
 import time
 import sys
 

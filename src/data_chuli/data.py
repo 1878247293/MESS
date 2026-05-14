@@ -1,3 +1,15 @@
+"""
+数据层基础设施。
+
+提供：
+- `Table` dataclass：tids（实体在全局向量数组里的下标）+ tuple_ids（每个 tid 属于的分组），
+  `get_tuples` 把分组拍平成 `[(tid, tid, ...), ...]` 的预测结果。
+- `read_all_tables / read_table`：扫 `table_*.csv`，支持只读选中列、按 sample_rate 下采样
+  （采样时 tid 会重新映射成连续整数，下游靠 tid 直接做数组下标）。
+- `read_ground_truth`：读 `ground_truth.txt` 的元组列表，评估时用。
+- `textify_table`：把表的每一行（除 tid 列）拼成一句字符串，喂给 SentenceTransformer。
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Optional
