@@ -106,21 +106,19 @@ body::before {
 }
 
 .app-shell {
-    width: min(1440px, calc(100vw - 40px));
-    margin: 20px auto 28px;
-    padding: 28px;
+    width: min(1440px, calc(100vw - 32px));
+    margin: 12px auto 16px;
+    padding: 16px 18px;
     border: 1px solid rgba(156, 183, 216, 0.55);
-    border-radius: 28px;
+    border-radius: 18px;
     background: rgba(255, 255, 255, 0.84);
     box-shadow: var(--shadow);
     backdrop-filter: blur(14px);
 }
 
 .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.95fr);
-    gap: 20px;
-    margin-bottom: 20px;
+    display: block;
+    margin-bottom: 12px;
 }
 
 .hero-panel,
@@ -133,12 +131,12 @@ body::before {
 .footer-shell {
     border: 1px solid rgba(156, 183, 216, 0.48);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 249, 255, 0.96));
-    box-shadow: 0 8px 24px rgba(26, 70, 121, 0.05);
+    box-shadow: 0 4px 14px rgba(26, 70, 121, 0.04);
 }
 
 .hero-panel {
-    padding: 26px 30px;
-    border-radius: 24px;
+    padding: 14px 18px;
+    border-radius: 14px;
 }
 
 .hero-kicker,
@@ -146,22 +144,22 @@ body::before {
 .chip {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+    gap: 6px;
+    padding: 3px 8px;
     border-radius: 999px;
     background: var(--primary-soft);
     color: var(--primary);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 .hero-title {
-    margin: 16px 0 10px;
-    font-size: clamp(28px, 3.3vw, 48px);
-    line-height: 1.06;
+    margin: 8px 0 6px;
+    font-size: clamp(18px, 2.2vw, 26px);
+    line-height: 1.15;
     letter-spacing: 0;
     font-weight: 700;
     color: var(--text);
@@ -174,28 +172,28 @@ body::before {
 .hero-copy {
     max-width: 52rem;
     margin: 0;
-    font-size: 15px;
-    line-height: 1.75;
+    font-size: 12px;
+    line-height: 1.6;
     color: var(--text-soft);
 }
 
 .hero-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: 24px;
+    gap: 8px;
+    margin-top: 12px;
 }
 
 .hero-metrics .hero-stat {
-    padding: 14px 16px;
-    border-radius: 16px;
+    padding: 8px 12px;
+    border-radius: 10px;
     background: rgba(220, 234, 254, 0.48);
     border: 1px solid rgba(156, 183, 216, 0.42);
 }
 
 .hero-stat .num {
     display: block;
-    font-size: 28px;
+    font-size: 18px;
     line-height: 1;
     font-weight: 700;
     color: var(--primary);
@@ -203,22 +201,22 @@ body::before {
 
 .hero-stat .label {
     display: block;
-    margin-top: 6px;
-    font-size: 12px;
+    margin-top: 4px;
+    font-size: 11px;
     color: var(--text-faint);
 }
 
 .hero-side {
     display: grid;
-    gap: 14px;
-    padding: 24px;
-    border-radius: 24px;
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 14px;
 }
 
 .hero-side h3,
 .page-card h3 {
     margin: 0;
-    font-size: 17px;
+    font-size: 13px;
     line-height: 1.3;
 }
 
@@ -226,34 +224,175 @@ body::before {
 .page-card p,
 .section-desc {
     margin: 0;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 12px;
+    line-height: 1.55;
     color: var(--text-soft);
 }
 
 .grid-note {
     display: grid;
-    gap: 10px;
+    gap: 6px;
 }
 
-.tab-nav {
-    gap: 10px !important;
-    margin: 0 0 18px !important;
+.layout-row {
+    gap: 0 !important;
+    align-items: flex-start !important;
+}
+
+.side-nav {
+    position: fixed !important;
+    top: 96px;
+    left: 16px;
+    z-index: 999;
+    user-select: none;
+    cursor: move;
+    min-width: 180px !important;
+    max-width: 220px !important;
+    background: rgba(235, 244, 253, 0.95);
+    border: 1px solid rgba(156, 183, 216, 0.55);
+    border-radius: 12px;
     padding: 8px !important;
-    border-radius: 18px !important;
+    box-shadow: 0 10px 28px rgba(26, 70, 121, 0.12);
+    transition: min-width 0.22s ease, max-width 0.22s ease, padding 0.22s ease, box-shadow 0.18s ease;
+}
+
+.side-nav::before {
+    content: "";
+    display: block;
+    width: 28px;
+    height: 3px;
+    margin: 0 auto 6px;
+    border-radius: 2px;
+    background: rgba(156, 183, 216, 0.55);
+}
+
+.side-nav.dragging {
+    box-shadow: 0 16px 40px rgba(26, 70, 121, 0.22);
+    transition: none !important;
+}
+
+.side-nav .nav-item button,
+.side-nav button.nav-item,
+.side-nav .nav-item {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 8px 12px !important;
+    margin: 3px 0 !important;
+    border-radius: 8px !important;
+    min-height: 34px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: background 0.18s ease, color 0.18s ease;
+}
+
+.side-nav button.secondary {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    color: var(--text-soft) !important;
+    box-shadow: none !important;
+}
+
+.side-nav button.secondary:hover {
+    background: rgba(255, 255, 255, 0.78) !important;
+    color: var(--text) !important;
+}
+
+.side-nav button.primary {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(226, 239, 252, 0.96)) !important;
+    color: var(--primary) !important;
+    border: 1px solid rgba(156, 183, 216, 0.62) !important;
+    box-shadow: none !important;
+}
+
+.sidebar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    margin-bottom: 6px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(156, 183, 216, 0.55);
+    color: var(--text-soft);
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    transition: background 0.18s, color 0.18s;
+}
+
+.sidebar-toggle:hover {
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+
+.sidebar-toggle .bar {
+    font-size: 14px;
+    line-height: 1;
+}
+
+.layout-row.sidebar-collapsed .side-nav {
+    min-width: 48px !important;
+    max-width: 48px !important;
+    padding: 6px !important;
+}
+
+.layout-row.sidebar-collapsed .side-nav .nav-item,
+.layout-row.sidebar-collapsed .side-nav button.nav-item {
+    padding: 8px 6px !important;
+    justify-content: center !important;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 0 !important;
+}
+
+.layout-row.sidebar-collapsed .side-nav .nav-item::first-letter,
+.layout-row.sidebar-collapsed .side-nav button.nav-item::first-letter {
+    font-size: 13px !important;
+}
+
+.layout-row.sidebar-collapsed .sidebar-toggle .text {
+    display: none;
+}
+
+.layout-row.sidebar-collapsed .sidebar-toggle {
+    justify-content: center;
+    padding: 6px;
+}
+
+.main-pane {
+    min-width: 0 !important;
+}
+
+/* 隐藏 Gradio 默认 footer (通过 API 使用 / 使用 Gradio 构建 / 设置) */
+.gradio-container footer,
+.gradio-container > .main > footer,
+.gradio-container > footer {
+    display: none !important;
+}
+
+/* legacy gr.Tabs styling kept in case something else uses it */
+.tab-nav {
+    gap: 4px !important;
+    margin: 0 0 12px !important;
+    padding: 4px !important;
+    border-radius: 12px !important;
     border: 1px solid rgba(156, 183, 216, 0.48) !important;
     background: rgba(235, 244, 253, 0.75) !important;
 }
 
 .tab-nav button {
-    min-height: 56px !important;
-    padding: 10px 18px !important;
-    border-radius: 14px !important;
+    min-height: 34px !important;
+    padding: 6px 14px !important;
+    border-radius: 8px !important;
     border: 1px solid transparent !important;
     background: transparent !important;
     color: var(--text-soft) !important;
     font-family: var(--sans) !important;
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
     letter-spacing: 0 !important;
     box-shadow: none !important;
@@ -263,7 +402,6 @@ body::before {
 .tab-nav button:hover {
     background: rgba(255, 255, 255, 0.78) !important;
     color: var(--text) !important;
-    transform: translateY(-1px);
 }
 
 .tab-nav button.selected {
@@ -273,36 +411,36 @@ body::before {
 }
 
 .tab-nav button span {
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
 }
 
 .workspace {
-    padding: 6px 0 10px;
+    padding: 2px 0 6px;
 }
 
 .page-intro {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
-    gap: 16px;
-    margin-bottom: 20px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.8fr);
+    gap: 10px;
+    margin-bottom: 12px;
 }
 
 .page-card {
-    padding: 22px 24px;
-    border-radius: 20px;
+    padding: 12px 14px;
+    border-radius: 12px;
 }
 
 .page-card.compact {
     display: grid;
     align-content: start;
-    gap: 10px;
+    gap: 6px;
 }
 
 .section-title {
-    margin: 12px 0 8px;
-    font-size: 30px;
-    line-height: 1.12;
+    margin: 6px 0 4px;
+    font-size: 18px;
+    line-height: 1.2;
     font-weight: 700;
     letter-spacing: 0;
     color: var(--text);
@@ -316,9 +454,9 @@ body::before {
 .section-h {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin: 0 0 12px;
-    font-size: 18px;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 13px;
     line-height: 1.3;
     font-weight: 700;
     color: var(--text);
@@ -328,36 +466,36 @@ body::before {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 10px;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
     background: var(--primary-soft);
     color: var(--primary);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .panel-muted {
-    padding: 12px 14px;
-    border-radius: 14px;
+    padding: 8px 12px;
+    border-radius: 10px;
 }
 
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-    margin: 12px 0 18px;
+    gap: 8px;
+    margin: 8px 0 12px;
 }
 
 .metric-cell {
-    padding: 18px;
-    border-radius: 16px;
+    padding: 10px 14px;
+    border-radius: 12px;
 }
 
 .metric-cell .k {
     display: block;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-faint);
     font-family: var(--mono);
     text-transform: uppercase;
@@ -365,8 +503,8 @@ body::before {
 
 .metric-cell .v {
     display: block;
-    margin-top: 8px;
-    font-size: 32px;
+    margin-top: 4px;
+    font-size: 22px;
     line-height: 1;
     font-weight: 700;
     color: var(--primary);
@@ -377,30 +515,31 @@ body::before {
 }
 
 .metric-cell .note {
-    margin-top: 8px;
-    font-size: 12px;
+    margin-top: 4px;
+    font-size: 11px;
     color: var(--text-faint);
 }
 
 .info-sheet {
     display: grid;
-    gap: 10px;
-    padding: 16px 18px;
-    border-radius: 16px;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 12px;
     color: var(--text-soft);
+    font-size: 12px;
 }
 
 .info-sheet > div {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 10px;
+    gap: 8px;
 }
 
 .info-sheet .label {
-    min-width: 84px;
+    min-width: 72px;
     color: var(--text-faint);
-    font-size: 12px;
+    font-size: 11px;
     font-family: var(--mono);
     text-transform: uppercase;
 }
@@ -411,10 +550,10 @@ body::before {
 }
 
 .status-line {
-    padding: 16px 18px;
-    border-radius: 16px;
+    padding: 10px 12px;
+    border-radius: 12px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 12px;
 }
 
 .status-line.on {
@@ -428,8 +567,8 @@ body::before {
 
 .progress-track {
     width: 100%;
-    height: 8px;
-    margin-top: 12px;
+    height: 6px;
+    margin-top: 8px;
     overflow: hidden;
     border-radius: 999px;
     background: rgba(201, 217, 234, 0.7);
@@ -445,8 +584,8 @@ body::before {
 .gradio-textbox textarea,
 .gradio-code textarea {
     font-family: var(--mono) !important;
-    font-size: 13px !important;
-    line-height: 1.6 !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
 }
 
 .gr-form, .gr-box, .block, .form {
@@ -457,7 +596,7 @@ body::before {
 
 label, .gradio-container label {
     font-family: var(--sans) !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     color: var(--text-soft) !important;
     letter-spacing: 0 !important;
@@ -467,20 +606,21 @@ label, .gradio-container label {
 .gradio-container .info,
 .gradio-container label + * small {
     color: var(--text-faint) !important;
-    font-size: 12px !important;
+    font-size: 11px !important;
 }
 
-input, textarea, select,
+input:not([type="checkbox"]):not([type="radio"]), textarea, select,
 .gr-box, .gr-input, .gr-dropdown,
 .gradio-textbox textarea,
 .gradio-textbox input,
 .gradio-dropdown .wrap,
 .gradio-number input {
-    border-radius: 14px !important;
+    border-radius: 10px !important;
     border: 1px solid rgba(156, 183, 216, 0.62) !important;
     background: rgba(255, 255, 255, 0.92) !important;
     color: var(--text) !important;
     box-shadow: none !important;
+    font-size: 12px !important;
 }
 
 input:focus, textarea:focus,
@@ -493,43 +633,52 @@ input:focus, textarea:focus,
     accent-color: var(--primary);
 }
 
+input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--primary);
+    width: 15px !important;
+    height: 15px !important;
+    cursor: pointer;
+}
+
 .gr-accordion, details {
     border: 1px solid rgba(156, 183, 216, 0.48) !important;
-    border-radius: 16px !important;
+    border-radius: 12px !important;
     background: rgba(245, 250, 255, 0.92) !important;
     overflow: hidden !important;
 }
 
 .gr-accordion > .label-wrap, summary {
-    padding: 12px 14px !important;
+    padding: 8px 12px !important;
     color: var(--primary) !important;
     font-family: var(--sans) !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 700 !important;
     background: transparent !important;
 }
 
 button.primary, button[variant="primary"], .gr-button-primary {
-    border-radius: 14px !important;
+    border-radius: 10px !important;
     border: 1px solid transparent !important;
     background: linear-gradient(180deg, #2b79e8 0%, var(--primary) 100%) !important;
     color: var(--primary-ink) !important;
     font-family: var(--sans) !important;
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
-    padding: 12px 18px !important;
-    box-shadow: 0 12px 26px rgba(30, 100, 200, 0.22) !important;
+    padding: 8px 14px !important;
+    box-shadow: 0 6px 14px rgba(30, 100, 200, 0.18) !important;
+    min-height: 34px !important;
 }
 
 button.secondary, .gr-button-secondary,
 button.stop, .gr-button-stop,
 .preset-row button {
-    border-radius: 14px !important;
+    border-radius: 10px !important;
     font-family: var(--sans) !important;
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
-    padding: 12px 18px !important;
+    padding: 8px 14px !important;
     box-shadow: none !important;
+    min-height: 34px !important;
 }
 
 button.secondary, .gr-button-secondary,
@@ -546,24 +695,24 @@ button.stop, .gr-button-stop {
 }
 
 .preset-row {
-    gap: 10px !important;
-    margin-top: 8px !important;
+    gap: 8px !important;
+    margin-top: 6px !important;
 }
 
 .footer-shell {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
-    margin-top: 16px;
-    padding: 18px 22px;
-    border-radius: 20px;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
 }
 
 .footer-shell p {
     margin: 0;
     color: var(--text-soft);
-    font-size: 13px;
-    line-height: 1.7;
+    font-size: 11px;
+    line-height: 1.55;
 }
 
 .mono {
@@ -571,11 +720,16 @@ button.stop, .gr-button-stop {
 }
 
 code {
-    padding: 2px 6px;
-    border-radius: 8px;
+    padding: 1px 5px;
+    border-radius: 6px;
     background: rgba(220, 234, 254, 0.7);
     color: var(--primary-deep);
     font-family: var(--mono);
+    font-size: 11px;
+}
+
+table {
+    font-size: 12px !important;
 }
 
 @media (max-width: 1100px) {
@@ -592,22 +746,22 @@ code {
 
 @media (max-width: 720px) {
     .app-shell {
-        width: min(100vw - 16px, 100%);
-        margin: 8px auto 16px;
-        padding: 14px;
-        border-radius: 20px;
+        width: min(100vw - 12px, 100%);
+        margin: 6px auto 12px;
+        padding: 10px;
+        border-radius: 14px;
     }
 
     .hero-panel,
     .hero-side,
     .page-card,
     .footer-shell {
-        padding: 18px;
-        border-radius: 18px;
+        padding: 12px;
+        border-radius: 12px;
     }
 
     .section-title {
-        font-size: 24px;
+        font-size: 16px;
     }
 
     .footer-shell {
@@ -619,41 +773,12 @@ code {
 
 HERO_HTML = """
 <div class="app-shell">
-  <section class="hero">
+  <section class="hero hero-slim">
     <div class="hero-panel">
       <span class="hero-kicker">SAGEM Workbench</span>
       <h1 class="hero-title">面向 <span class="accent">多表实体匹配</span> 的统一实验前端</h1>
-      <p class="hero-copy">
-        这是一套围绕主流程、对比学习、LLM 数据生成与结果回看构建的蓝白工作台界面。
-        页面重点放在配置清晰度、运行反馈和结果可读性，避免装饰性干扰。
-      </p>
-      <div class="hero-metrics">
-        <div class="hero-stat">
-          <span class="num">4</span>
-          <span class="label">核心工作区</span>
-        </div>
-        <div class="hero-stat">
-          <span class="num">1</span>
-          <span class="label">统一视觉系统</span>
-        </div>
-        <div class="hero-stat">
-          <span class="num">实时</span>
-          <span class="label">日志与状态反馈</span>
-        </div>
-      </div>
+      <p class="hero-copy">主流程、对比学习、LLM 数据生成、结果回看四块工作区集中在此，所有运行入口共用同一套配置和日志反馈。</p>
     </div>
-    <aside class="hero-side">
-      <div class="grid-note">
-        <span class="chip">Blue / White UI</span>
-        <h3>重做信息结构</h3>
-        <p>每个页面都拆成“说明区 + 配置区 + 监控区”，让操作顺序更直观。</p>
-      </div>
-      <div class="grid-note">
-        <span class="chip">Focused Workflow</span>
-        <h3>保留功能，替换表达</h3>
-        <p>底层交互逻辑继续复用现有运行入口，前端布局、文案和视觉不再沿用旧实现。</p>
-      </div>
-    </aside>
   </section>
 """
 
@@ -672,6 +797,76 @@ FOOTER_HTML = """
 </div>
 """
 
+
+DRAG_SIDEBAR_SCRIPT = """
+<script>
+(function() {
+    function isInteractive(el) {
+        if (!el) return false;
+        if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || el.tagName === 'LABEL') return true;
+        return !!(el.closest && el.closest('button, a, input, label'));
+    }
+
+    function init(nav) {
+        if (!nav || nav.dataset.dragInit) return;
+        nav.dataset.dragInit = '1';
+
+        var dragging = false, moved = false;
+        var startX = 0, startY = 0, initLeft = 0, initTop = 0;
+
+        nav.addEventListener('mousedown', function(e) {
+            if (isInteractive(e.target)) return;
+            dragging = true;
+            moved = false;
+            startX = e.clientX;
+            startY = e.clientY;
+            var rect = nav.getBoundingClientRect();
+            initLeft = rect.left;
+            initTop = rect.top;
+            nav.style.left = initLeft + 'px';
+            nav.style.top = initTop + 'px';
+            nav.style.right = 'auto';
+            nav.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!dragging) return;
+            var dx = e.clientX - startX;
+            var dy = e.clientY - startY;
+            if (!moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) moved = true;
+            var newLeft = initLeft + dx;
+            var newTop = initTop + dy;
+            var maxLeft = window.innerWidth - nav.offsetWidth - 8;
+            var maxTop = window.innerHeight - nav.offsetHeight - 8;
+            nav.style.left = Math.max(8, Math.min(maxLeft, newLeft)) + 'px';
+            nav.style.top = Math.max(8, Math.min(maxTop, newTop)) + 'px';
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (dragging) {
+                dragging = false;
+                nav.classList.remove('dragging');
+            }
+        });
+    }
+
+    function attempt() {
+        var nav = document.querySelector('.side-nav');
+        if (nav) init(nav);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', attempt);
+    } else {
+        attempt();
+    }
+
+    var mo = new MutationObserver(function() { attempt(); });
+    mo.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+"""
 
 THEME = gr.themes.Base(
     primary_hue=gr.themes.colors.blue,
@@ -704,20 +899,51 @@ def create_app() -> gr.Blocks:
         fill_width=True,
         theme=THEME,
         css=CUSTOM_CSS,
+        head=DRAG_SIDEBAR_SCRIPT,
     ) as app:
         gr.HTML(HERO_HTML)
 
-        with gr.Tabs(elem_classes="tab-nav"):
-            with gr.Tab("主流程", id="tab-main"):
-                tab_main_flow.create_tab()
-            with gr.Tab("对比学习", id="tab-cl"):
-                tab_contrastive.create_tab()
-            with gr.Tab("数据生成", id="tab-llm"):
-                tab_llm_gen.create_tab()
-            with gr.Tab("结果分析", id="tab-results"):
-                tab_results.create_tab()
+        with gr.Row(elem_classes="layout-row"):
+            with gr.Column(scale=0, min_width=180, elem_classes="side-nav"):
+                gr.HTML(
+                    '<button type="button" class="sidebar-toggle"'
+                    ' onclick="document.querySelector(\'.layout-row\').classList.toggle(\'sidebar-collapsed\'); return false;">'
+                    '<span class="bar">≡</span><span class="text">收起菜单</span>'
+                    '</button>'
+                )
+                nav_main = gr.Button("主流程", variant="primary", elem_classes="nav-item")
+                nav_cl = gr.Button("对比学习", variant="secondary", elem_classes="nav-item")
+                nav_llm = gr.Button("数据生成", variant="secondary", elem_classes="nav-item")
+                nav_results = gr.Button("结果分析", variant="secondary", elem_classes="nav-item")
+
+            with gr.Column(scale=10, elem_classes="main-pane"):
+                with gr.Column(visible=True, elem_classes="pane") as pane_main:
+                    tab_main_flow.create_tab()
+                with gr.Column(visible=False, elem_classes="pane") as pane_cl:
+                    tab_contrastive.create_tab()
+                with gr.Column(visible=False, elem_classes="pane") as pane_llm:
+                    tab_llm_gen.create_tab()
+                with gr.Column(visible=False, elem_classes="pane") as pane_results:
+                    tab_results.create_tab()
 
         gr.HTML(FOOTER_HTML)
+
+        nav_buttons = [nav_main, nav_cl, nav_llm, nav_results]
+        panes = [pane_main, pane_cl, pane_llm, pane_results]
+
+        def _make_selector(idx: int):
+            def _fn():
+                pane_updates = [gr.update(visible=(i == idx)) for i in range(4)]
+                btn_updates = [
+                    gr.update(variant="primary" if i == idx else "secondary")
+                    for i in range(4)
+                ]
+                return pane_updates + btn_updates
+
+            return _fn
+
+        for i, btn in enumerate(nav_buttons):
+            btn.click(fn=_make_selector(i), outputs=panes + nav_buttons)
 
     return app
 

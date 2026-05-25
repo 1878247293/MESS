@@ -41,7 +41,7 @@ GEO_CONFIG = DatasetConfig(
     col_sim_threshold=0.8,  # 这个最敏感，从 0.9 调到 0.8 才对
     selection_rate=0.2,
     k=1,
-    min_dis=0.5,
+    min_dis=0.7,
     eps=1.0,
 
     use_contrastive_learning=False,
@@ -168,10 +168,10 @@ MUSIC2000_CONFIG = DatasetConfig(
 # Shopee
 SHOPEE_CONFIG = DatasetConfig(
     eer_flag=True,
-    col_sim_threshold=0.9,  # 0.8 / 0.9 差别不大
+    col_sim_threshold=1.0,
     selection_rate=0.2,
     k=1,
-    min_dis=0.5,            # Shopee 上要更紧
+    min_dis=0.3,
     eps=1.0,
 
     use_contrastive_learning=False,

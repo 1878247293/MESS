@@ -12,9 +12,12 @@ from web.utils import (
     parse_metrics_from_log,
     parse_progress_from_log,
     scan_datasets,
+    scan_finetuned_models,
 )
 
 runner = ProcessRunner()
+
+ORIGINAL_MODEL_LABEL = "原始(未微调)"
 
 
 def _metric_grid(p, r, f1) -> str:
@@ -81,27 +84,26 @@ def apply_preset(name: str):
 def run_main_flow(
     data_name,
     model_type,
+    finetuned_choice,
     use_smart_pairing,
+    run_in_parallel,
     col_sim_threshold,
     min_dis,
     k,
     selection_rate,
-    run_in_parallel,
-    use_dataset_config,
-    use_efficient_matching,
 ):
     params = dict(
         data_name=data_name,
         model_type=model_type,
         use_smart_pairing=use_smart_pairing,
+        run_in_parallel=run_in_parallel,
         col_sim_threshold=col_sim_threshold,
         min_dis=min_dis,
         k=k,
         selection_rate=selection_rate,
-        run_in_parallel=run_in_parallel,
-        use_dataset_config=use_dataset_config,
-        use_efficient_matching=use_efficient_matching,
     )
+    if finetuned_choice and finetuned_choice != ORIGINAL_MODEL_LABEL:
+        params["lm_model_or_path"] = f"finetuned_models/{finetuned_choice}"
 
     log_text = ""
     for line in runner.run_main_flow(**params):
@@ -165,11 +167,20 @@ def create_tab():
                 preset_btn = gr.Button("应用推荐参数", size="sm")
 
             model_type = gr.Dropdown(
-                choices=["modernbert", "minilm"],
-                value="modernbert",
+                choices=["minilm"],
+                value="minilm",
                 label="嵌入模型",
-                info="modernbert 偏向精度，minilm 偏向速度。",
+                info="使用 all-MiniLM-L12-v2 作为嵌入骨干。",
             )
+            with gr.Row():
+                finetuned_choice = gr.Dropdown(
+                    choices=[ORIGINAL_MODEL_LABEL] + scan_finetuned_models(),
+                    value=ORIGINAL_MODEL_LABEL,
+                    label="微调模型",
+                    info="选择对比学习训练后的模型;留空则用原始权重。",
+                    scale=4,
+                )
+                refresh_finetuned_btn = gr.Button("刷新", size="sm", scale=1)
             col_sim_threshold = gr.Slider(
                 0,
                 1,
@@ -188,12 +199,10 @@ def create_tab():
             )
 
             with gr.Accordion("高级设置", open=False):
-                use_smart_pairing = gr.Checkbox(value=False, label="启用语义感知调度")
+                use_smart_pairing = gr.Checkbox(value=True, label="启用语义感知调度")
+                run_in_parallel = gr.Checkbox(value=False, label="启用并行执行")
                 k = gr.Number(value=1, precision=0, label="KNN k")
                 selection_rate = gr.Slider(0, 1, value=0.2, step=0.05, label="采样率")
-                run_in_parallel = gr.Checkbox(value=False, label="并行合并")
-                use_dataset_config = gr.Checkbox(value=True, label="优先使用数据集默认配置")
-                use_efficient_matching = gr.Checkbox(value=False, label="启用高效匹配")
 
             with gr.Row(elem_classes="preset-row"):
                 run_btn = gr.Button("开始运行", variant="primary")
@@ -208,8 +217,8 @@ def create_tab():
             log_output = gr.Textbox(
                 label="",
                 show_label=False,
-                lines=26,
-                max_lines=60,
+                lines=18,
+                max_lines=40,
                 interactive=False,
                 autoscroll=True,
                 elem_classes="log-box",
@@ -217,6 +226,14 @@ def create_tab():
             )
 
     data_name.change(fn=on_dataset_change, inputs=data_name, outputs=info_html)
+    refresh_finetuned_btn.click(
+        fn=lambda current: gr.update(
+            choices=[ORIGINAL_MODEL_LABEL] + scan_finetuned_models(),
+            value=current if current in ([ORIGINAL_MODEL_LABEL] + scan_finetuned_models()) else ORIGINAL_MODEL_LABEL,
+        ),
+        inputs=finetuned_choice,
+        outputs=finetuned_choice,
+    )
     preset_btn.click(
         fn=apply_preset,
         inputs=data_name,
@@ -227,14 +244,13 @@ def create_tab():
         inputs=[
             data_name,
             model_type,
+            finetuned_choice,
             use_smart_pairing,
+            run_in_parallel,
             col_sim_threshold,
             min_dis,
             k,
             selection_rate,
-            run_in_parallel,
-            use_dataset_config,
-            use_efficient_matching,
         ],
         outputs=[log_output, metric_html, status_html],
     )

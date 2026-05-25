@@ -14,7 +14,7 @@ GENERATE_SYSTEM_PROMPT = """你是一位合成数据生成专家，负责为实�
 
 ## 绝对禁止（违反任何一条则该实体组作废）
 
-1. **禁止占位符/模板名称**：不允许出现 "Song Name"、"Album Name"、"The Artist"、"Unknown Artist"、"Unknown Song"、"Unknown Title"、"Unknown"、"未知歌名"、"未知艺人"、"ShopeeItem"、"虚构的首都"、"Fictional Capital"、"Product Name"、"Brand Name" 等通用占位符。每个实体必须有具体的、有辨识度的名称。
+1. **禁止占位符/模板名称**：不允许出现 "Unknown Artist"、"Unknown Song"、"Unknown Title"、"Unknown" 等通用占位符。每个实体必须有具体的、有辨识度的名称。
 2. **禁止 null 字符串**：字段值不允许出现字面文本 "null"、"None"、"N/A"、"undefined"。如果某个字段按规范应该缺失，请使用空字符串 ""。
 3. **禁止重复**：每个实体组的核心名称必须与其他实体组完全不同。下方"已有实体名"列表中的名称绝对不能再次出现。
 4. **禁止混入不同实体**：同一个 entity group 内的所有 variants 必须是同一个实体（同一首歌/同一个人/同一件商品）的不同格式表示。绝对不允许将不同实体放入同一组。例如不允许把"钢琴曲"和"吉他曲"放在一组，不允许把"声卡"和"服装"放在一组。

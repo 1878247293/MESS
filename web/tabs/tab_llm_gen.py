@@ -174,8 +174,8 @@ def create_tab():
             log_output = gr.Textbox(
                 show_label=False,
                 label="",
-                lines=14,
-                max_lines=36,
+                lines=12,
+                max_lines=28,
                 interactive=False,
                 autoscroll=True,
                 elem_classes="log-box",

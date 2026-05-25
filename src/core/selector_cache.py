@@ -16,14 +16,14 @@ from log import log
 
 @dataclass
 class AttributeSelectionCache:
-    dataset_name: str
-    selected_attrs: List[str]
-    col_sim_threshold: float
-    selection_rate: float
-    model_name: str
-    max_seq_length: int
-    timestamp: str
-    selection_time: float
+    dataset_name: str# 数据集名（区分不同任务）
+    selected_attrs: List[str]# 选中的列名（核心结果）
+    col_sim_threshold: float# 用的阈值 γ
+    selection_rate: float# 用的采样率
+    model_name: str# 用的编码模型
+    max_seq_length: int# 最大序列长度（仅记录用）
+    timestamp: str # 缓存写入时间
+    selection_time: float# 原始计算耗时（秒）→ 下次命中能告诉你省了多少
 
 
 class AttributeSelectionCacheManager:
@@ -34,8 +34,8 @@ class AttributeSelectionCacheManager:
     def _get_cache_key(self, dataset_name: str, col_sim_threshold: float,
                        selection_rate: float, model_name: str) -> str:
         # 不同模型相似度分布不一样，曾经共享缓存吃过亏，必须把模型名加进 key
-        _model_snippet = model_name.split('/')[-1]
-        return f"{dataset_name}_gamma{col_sim_threshold}_rate{selection_rate}_{_model_snippet}"
+        _model_snippet = model_name.split('/')[-1]#"sentence-transformers/all-MiniLM-L12-v2"-》 "all-MiniLM-L12-v2"
+        return f"{dataset_name}_gamma{col_sim_threshold}_rate{selection_rate}_{_model_snippet}"#Music-20_gamma0.9_rate0.2_all-MiniLM-L12-v2
 
     def _get_cache_path(self, cache_key: str) -> Path:
         return self.cache_dir / f"{cache_key}.json"

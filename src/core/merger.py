@@ -9,8 +9,7 @@ N 张表 → N/2 → N/4 → … → 1。每一层挑配对方式（随机 / 智
 - `merge_parallel_with_smart_pairing` —— 并行 + SmartTablePairing
 
 核心是 `merge_ij(table_i, table_j, ...)`：双向 mutual KNN 找匹配 tuple 对
-（默认 HNSW + 双向交集；`--use-efficient-matching` 切到 `efficient_matcher` 的
-numpy 向量化实现），距离 ≤ args.min_dis 的留下来，匹配上的 tuple 合并，剩下的延续 tuple_id。
+（HNSW + 双向交集），距离 ≤ args.min_dis 的留下来，匹配上的 tuple 合并，剩下的延续 tuple_id。
 """
 
 from typing import List
@@ -34,7 +33,7 @@ from utils import knn_search, shuffle
 from smart_table_pairing import SmartTablePairing
 
 
-def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):
+def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):#资源监控
     stage = update_stage_metrics(args, stage_name, usage)
     ram_text = format_bytes(stage["peak_memory_bytes"])
     gpu_text = format_bytes(stage["peak_gpu_memory_bytes"])
@@ -50,7 +49,7 @@ def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):
     )
 
 
-def get_table_embeddings(table: Table, all_embeddings: np.array):
+def get_table_embeddings(table: Table, all_embeddings: np.array):#表内 embedding 聚合
     embeddings = all_embeddings[table.tids]
     df = pd.DataFrame(embeddings)
     df["group"] = table.tuple_ids
@@ -74,29 +73,19 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
     log(f"table {idx_i}, {idx_j}")
     timer.start()
 
-    use_efficient_matching = getattr(args, 'use_efficient_matching', False)
-
     embeddings_i = get_table_embeddings(table_i, all_embeddings)
     embeddings_j = get_table_embeddings(table_j, all_embeddings)
     tm = timer.stop()
     log(f"  get embeddings: {tm}")
     timer.start()
 
-    if use_efficient_matching:
-        # 单向搜 + 反向校验
-        from efficient_matcher import efficient_mutual_search
-        pairs = efficient_mutual_search(
-            embeddings_i, embeddings_j,
-            args.k, args.seed, args.min_dis
-        )
-    else:
-        # 老路子：双向搜，取交集
-        pairs_ij = search_ij(embeddings_i, embeddings_j,
-                             args.k, args.seed, args.min_dis)
-        pairs_ji = search_ij(embeddings_j, embeddings_i,
-                             args.k, args.seed, args.min_dis)
-        pairs_ji = [(x[1], x[0]) for x in pairs_ji]
-        pairs = set(pairs_ij).intersection(set(pairs_ji))
+    # 双向搜，取交集
+    pairs_ij = search_ij(embeddings_i, embeddings_j,
+                         args.k, args.seed, args.min_dis)
+    pairs_ji = search_ij(embeddings_j, embeddings_i,
+                         args.k, args.seed, args.min_dis)
+    pairs_ji = [(x[1], x[0]) for x in pairs_ji]
+    pairs = set(pairs_ij).intersection(set(pairs_ji))
 
     size_i = int(embeddings_i.shape[0])
     size_j = int(embeddings_j.shape[0])
@@ -173,7 +162,7 @@ def merge(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Tabl
     hierarchy_level = 1
 
     while len(cur_tables) > 1:
-        # 当前层号，用于落候选集
+        # 当前层号
         args._current_hierarchy_level = hierarchy_level
 
         current_tuples = sum(len(set(table.tuple_ids)) for table in cur_tables)

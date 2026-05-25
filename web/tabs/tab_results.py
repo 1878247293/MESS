@@ -107,10 +107,12 @@ def compare_selected(selected_files):
 
     records = load_result_files()
     selected = [item for item in records if item["file"] in selected_files]
+    selected.sort(key=lambda x: x.get("timestamp") or x.get("file", ""))
 
     bars = []
     for item in selected:
-        label = f"{item['dataset']} · {item['file'][:14]}"
+        ts = item.get("timestamp") or item["file"][:19]
+        label = f"{item['dataset']} · {ts}"
         for metric in ("P", "R", "F1"):
             bars.append({"运行": label, "指标": metric, "值": item.get(metric) if item.get(metric) is not None else 0.0})
 
@@ -155,47 +157,53 @@ def create_tab():
         """
     )
 
-    summary_html = gr.HTML(_summary_card([]))
+    with gr.Row(equal_height=False):
+        with gr.Column(scale=4, min_width=300):
+            gr.HTML('<div class="section-h"><span class="idx">01</span>结果概览</div>')
+            summary_html = gr.HTML(_summary_card([]))
 
-    with gr.Row(elem_classes="preset-row"):
-        refresh_btn = gr.Button("刷新结果列表", variant="primary")
+            gr.HTML('<div class="section-h"><span class="idx">03</span>结果详情</div>')
+            detail_output = gr.Code(label="", show_label=False, language="json", lines=14)
 
-    records_table = gr.Dataframe(
-        value=pd.DataFrame(),
-        label="",
-        show_label=False,
-        interactive=False,
-        wrap=True,
-        row_count=(10, "dynamic"),
-    )
+        with gr.Column(scale=6):
+            gr.HTML('<div class="section-h"><span class="idx">02</span>结果文件列表</div>')
+            with gr.Row(elem_classes="preset-row"):
+                refresh_btn = gr.Button("刷新结果列表", variant="primary")
 
-    gr.HTML('<div class="section-h"><span class="idx">01</span>结果详情</div>')
-    detail_output = gr.Code(label="", show_label=False, language="json", lines=18)
-
-    gr.HTML('<div class="section-h"><span class="idx">02</span>多次运行对比</div>')
-    with gr.Row():
-        selected_files = gr.Dropdown(
-            choices=[],
-            multiselect=True,
-            label="选择结果文件",
-            info="可以选择多个结果进行横向对比。",
-        )
-        compare_btn = gr.Button("生成对比", variant="secondary")
-
-    with gr.Row(equal_height=True):
-        with gr.Column(scale=1):
-            compare_chart = gr.BarPlot(
-                x="运行",
-                y="值",
-                color="指标",
-                title="",
-                x_title="",
-                y_title="",
-                height=280,
+            records_table = gr.Dataframe(
+                value=pd.DataFrame(),
+                label="",
                 show_label=False,
+                interactive=False,
+                wrap=True,
+                row_count=(8, "dynamic"),
             )
-        with gr.Column(scale=1):
-            param_table = gr.Dataframe(label="", show_label=False, interactive=False, wrap=True)
+
+            gr.HTML('<div class="section-h"><span class="idx">04</span>多次运行对比</div>')
+            with gr.Row():
+                selected_files = gr.Dropdown(
+                    choices=[],
+                    multiselect=True,
+                    label="选择结果文件",
+                    info="可选多个结果进行横向对比。",
+                    scale=4,
+                )
+                compare_btn = gr.Button("生成对比", variant="secondary", scale=1)
+
+            with gr.Row(equal_height=True):
+                with gr.Column(scale=1):
+                    compare_chart = gr.LinePlot(
+                        x="运行",
+                        y="值",
+                        color="指标",
+                        title="",
+                        x_title="",
+                        y_title="",
+                        height=200,
+                        show_label=False,
+                    )
+                with gr.Column(scale=1):
+                    param_table = gr.Dataframe(label="", show_label=False, interactive=False, wrap=True)
 
     refresh_btn.click(fn=refresh_results, outputs=[records_table, selected_files, summary_html])
     records_table.select(fn=on_row_select, inputs=records_table, outputs=detail_output)

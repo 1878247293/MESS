@@ -6,7 +6,12 @@ import gradio as gr
 import pandas as pd
 
 from web.runner import ProcessRunner
-from web.utils import collapse_progress_lines, parse_loss_from_log, scan_datasets
+from web.utils import (
+    collapse_progress_lines,
+    parse_loss_from_log,
+    parse_total_steps_from_log,
+    scan_datasets,
+)
 
 runner = ProcessRunner()
 
@@ -15,7 +20,7 @@ def _status(running: bool, cur: int = 0, total: int = 0, msg: str = "") -> str:
     if running:
         pct = min(100, int(cur / max(total, 1) * 100)) if total else 0
         bar = f'<div class="progress-track"><div class="progress-bar" style="width:{pct}%"></div></div>'
-        return f'<div class="status-line on">训练中 · epoch {cur}/{total}{bar}</div>'
+        return f'<div class="status-line on">训练中 · 批次 {cur}{bar}</div>'
     if "停止" in msg:
         return f'<div class="status-line warn">{msg}</div>'
     return f'<div class="status-line">{msg or "等待开始。设置训练参数后即可执行对比学习。"}</div>'
@@ -42,16 +47,17 @@ def run_contrastive(
     )
 
     log_text = ""
-    total = int(cl_epochs)
     for line in runner.run_contrastive(**params):
         log_text += line
         losses = parse_loss_from_log(log_text)
-        df = pd.DataFrame(losses) if losses else pd.DataFrame({"epoch": [], "loss": []})
+        total = parse_total_steps_from_log(log_text)
+        df = pd.DataFrame(losses) if losses else pd.DataFrame({"batch": [], "loss": []})
         yield collapse_progress_lines(log_text), df, _status(True, len(losses), total)
 
     losses = parse_loss_from_log(log_text)
-    df = pd.DataFrame(losses) if losses else pd.DataFrame({"epoch": [], "loss": []})
-    yield collapse_progress_lines(log_text), df, _status(False, len(losses), total, f"训练完成，共记录 {len(losses)} 个 loss 点。")
+    total = parse_total_steps_from_log(log_text)
+    df = pd.DataFrame(losses) if losses else pd.DataFrame({"batch": [], "loss": []})
+    yield collapse_progress_lines(log_text), df, _status(False, len(losses), total, f"训练完成，共记录 {len(losses)} 个 batch loss 点。")
 
 
 def stop_contrastive():
@@ -88,9 +94,9 @@ def create_tab():
         with gr.Column(scale=4, min_width=360):
             gr.HTML('<div class="section-h"><span class="idx">01</span>训练配置</div>')
             data_name = gr.Dropdown(choices=datasets, value=datasets[0], label="数据集")
-            model_type = gr.Dropdown(choices=["modernbert", "minilm"], value="modernbert", label="骨干模型")
+            model_type = gr.Dropdown(choices=["minilm"], value="minilm", label="骨干模型")
             with gr.Row():
-                cl_epochs = gr.Slider(1, 100, value=10, step=1, label="Epochs")
+                cl_epochs = gr.Slider(1, 100, value=20, step=1, label="Epochs")
                 cl_batch_size = gr.Number(value=64, precision=0, label="Batch Size")
             with gr.Row():
                 cl_learning_rate = gr.Number(value=1e-5, label="Learning Rate")
@@ -107,12 +113,12 @@ def create_tab():
             gr.HTML('<div class="section-h"><span class="idx">02</span>训练监控</div>')
             status_html = gr.HTML(_status(False))
             loss_plot = gr.LinePlot(
-                x="epoch",
+                x="batch",
                 y="loss",
                 title="",
-                x_title="epoch",
+                x_title="batch",
                 y_title="InfoNCE loss",
-                height=280,
+                height=220,
                 show_label=False,
             )
 
@@ -120,8 +126,8 @@ def create_tab():
             log_output = gr.Textbox(
                 show_label=False,
                 label="",
-                lines=18,
-                max_lines=40,
+                lines=14,
+                max_lines=32,
                 interactive=False,
                 autoscroll=True,
                 elem_classes="log-box",

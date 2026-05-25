@@ -75,18 +75,23 @@ def parse_phase_times_from_log(log_text: str) -> Dict[str, float]:
 
 
 def parse_loss_from_log(log_text: str) -> List[Dict]:
-    """抓对比学习日志里的 loss 序列"""
+    """抓对比学习日志里的 loss 序列（每条来自一个 batch 的 tqdm 行）"""
     rows: List[Dict] = []
     for line in log_text.splitlines():
         lm = re.search(r"loss[=:]\s*([\d.]+)", line)
         if not lm:
             continue
-        em = re.search(r"[Ee]poch\s*(\d+)", line)
         rows.append({
-            "epoch": int(em.group(1)) if em else len(rows) + 1,
+            "batch": len(rows) + 1,
             "loss": float(lm.group(1)),
         })
     return rows
+
+
+def parse_total_steps_from_log(log_text: str) -> int:
+    """从日志里抓 'total steps = N'，没抓到返回 0"""
+    m = re.search(r"total steps\s*=\s*(\d+)", log_text)
+    return int(m.group(1)) if m else 0
 
 
 # 数据集
@@ -99,6 +104,14 @@ def scan_datasets() -> List[str]:
         [p.name for p in d.iterdir()
          if p.is_dir() and (p / "table_0.csv").exists()]
     )
+
+
+def scan_finetuned_models() -> List[str]:
+    """finetuned_models/ 下每个子目录就是一个对比学习微调好的模型"""
+    d = PROJECT_ROOT / "finetuned_models"
+    if not d.exists():
+        return []
+    return sorted([p.name for p in d.iterdir() if p.is_dir()])
 
 
 def _count_csv_rows(path: Path) -> int:
@@ -172,11 +185,11 @@ def get_dataset_stats(name: str) -> Dict:
 # 数据集预设
 # src/data_chuli/dataset_configs.py 那份的简化镜像，只挑 UI 要显示的字段
 DATASET_PRESETS: Dict[str, Dict] = {
-    "Geo":        {"col_sim_threshold": 0.8, "min_dis": 0.50, "selection_rate": 0.2, "k": 1, "note": "F1≈90.9"},
+    "Geo":        {"col_sim_threshold": 0.8, "min_dis": 0.70, "selection_rate": 0.2, "k": 1, "note": "F1≈90.9"},
     "Music-20":   {"col_sim_threshold": 0.9, "min_dis": 0.35, "selection_rate": 0.2, "k": 1, "note": "F1≈90.2"},
     "Music-200":  {"col_sim_threshold": 0.9, "min_dis": 0.35, "selection_rate": 0.2, "k": 1, "note": "F1≈82.4"},
     "Music-2000": {"col_sim_threshold": 0.8, "min_dis": 0.30, "selection_rate": 0.2, "k": 1, "note": "待调"},
-    "Shopee":     {"col_sim_threshold": 0.9, "min_dis": 0.50, "selection_rate": 0.2, "k": 1, "note": "F1≈28.8"},
+    "Shopee":     {"col_sim_threshold": 1.0, "min_dis": 0.30, "selection_rate": 0.2, "k": 1, "note": "F1≈28.8"},
     "Person":     {"col_sim_threshold": 0.85,"min_dis": 0.40, "selection_rate": 0.2, "k": 1, "note": "大规模"},
 }
 
@@ -201,27 +214,30 @@ def load_result_files() -> List[Dict]:
         except (json.JSONDecodeError, OSError):
             continue
 
+        run_info = data.get("run_info", {})
+        params = run_info.get("parameters", {})
+        final_eval = data.get("evaluation_final") or data.get("evaluation_after_merge") or {}
+        summary = data.get("extra_data", {}).get("run_summary", {})
+
+        lm_path = params.get("lm_model_or_path", "") or ""
+        used_finetuned = lm_path.startswith("finetuned_models/")
+        used_cl = bool(params.get("use_contrastive_learning")) or used_finetuned
+
         rec: Dict = {
             "file": f.name,
-            "dataset": data.get("dataset", ""),
-            "timestamp": data.get("timestamp", ""),
+            "dataset": run_info.get("dataset", ""),
+            "timestamp": run_info.get("timestamp", ""),
+            "P": final_eval.get("precision"),
+            "R": final_eval.get("recall"),
+            "F1": final_eval.get("f1"),
+            "model_type": params.get("model_type", ""),
+            "min_dis": params.get("min_dis"),
+            "col_sim_threshold": params.get("col_sim_threshold"),
+            "use_smart_pairing": params.get("use_smart_pairing"),
+            "use_cl": used_cl,
+            "total_time": summary.get("total_time"),
+            "phase_times": summary.get("phase_times", {}),
         }
-        for ev in data.get("evaluations", []):
-            if ev.get("is_final"):
-                rec["P"] = ev.get("precision")
-                rec["R"] = ev.get("recall")
-                rec["F1"] = ev.get("f1")
-                break
-        params = data.get("parameters", {})
-        rec["model_type"] = params.get("model_type", "")
-        rec["min_dis"] = params.get("min_dis")
-        rec["col_sim_threshold"] = params.get("col_sim_threshold")
-        rec["use_smart_pairing"] = params.get("use_smart_pairing")
-        rec["use_cl"] = params.get("use_contrastive_learning")
-
-        summary = data.get("run_summary", {})
-        rec["total_time"] = summary.get("total_time")
-        rec["phase_times"] = summary.get("phase_times", {})
         records.append(rec)
 
     return records

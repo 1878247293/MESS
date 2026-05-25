@@ -22,7 +22,7 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 # 把 src/ 子目录塞进 sys.path
-_base_path = Path(__file__).resolve().parent
+_base_path = Path(__file__).resolve().parent #获取目录
 sys.path.append(str(_base_path / 'src'))
 for _sub in ['core', 'llm', 'data_chuli', 'training', 'utils']:
     sys.path.append(str(_base_path / 'src' / _sub))
@@ -39,7 +39,7 @@ from contrastive_learning import contrastive_finetune
 
 
 def main():
-    args = build_main_args()
+    args = build_main_args()#读取并且分析命令行参数
 
     # 1. 概览
     print(f"\n{'='*60}")
@@ -58,8 +58,7 @@ def main():
 
     # 2. 加载模型
     print("加载 SentenceTransformer 模型...")
-    trust_code = "modernbert" in str(args.lm_model_or_path).lower()
-    model = SentenceTransformer(args.lm_model_or_path, trust_remote_code=trust_code)
+    model = SentenceTransformer(args.lm_model_or_path, trust_remote_code=True)
     model.max_seq_length = args.max_seq_length
     model.to(args.device)
     print(f"  模型已加载到 {args.device}\n")

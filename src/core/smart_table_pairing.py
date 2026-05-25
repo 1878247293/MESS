@@ -24,9 +24,9 @@ class SmartTablePairing:
         """
         centers = []
         for table in tables:
-            table_embeddings = embeddings[table.tids]
-            center = table_embeddings.mean(axis=0)
-            center_norm = np.linalg.norm(center)
+            table_embeddings = embeddings[table.tids]#获取所有编码
+            center = table_embeddings.mean(axis=0)# 求平均
+            center_norm = np.linalg.norm(center)#算向量模长
             if center_norm > 0:
                 center = center / center_norm
             centers.append(center)
@@ -55,8 +55,8 @@ class SmartTablePairing:
         贪心：sim 排序，从高到低顺次配对，已配过的跳过。
         """
         n = len(tables)
-        paired = set()
-        pairs = []
+        paired = set()# 已经被配过的表索引
+        pairs = []# 最终的配对结果
 
         similarities = []
         for i in range(n):
@@ -85,7 +85,7 @@ class SmartTablePairing:
                           embeddings: np.array) -> Tuple[List[Tuple[int, int]], List[int]]:
         """按语义相似度贪心配对"""
         n = len(tables)
-        self.stats['total_pairings'] += 1
+        self.stats['total_pairings'] += 1# 记录总次数
 
         log(f"Smart pairing, {n} tables")
 
@@ -96,9 +96,9 @@ class SmartTablePairing:
         if n == 2:
             return [(0, 1)], []
 
-        centers = self.compute_table_centers(tables, embeddings)
-        sim_matrix = self.compute_similarity_matrix(centers)
-        pairs, unpaired = self.greedy_pairing_by_similarity(tables, sim_matrix)
+        centers = self.compute_table_centers(tables, embeddings)#算"表语义中心"
+        sim_matrix = self.compute_similarity_matrix(centers)#算相似度矩阵
+        pairs, unpaired = self.greedy_pairing_by_similarity(tables, sim_matrix)#贪心配对
 
         log(f"Pairing completed: {len(pairs)} pairs, {len(unpaired)} unpaired")
 

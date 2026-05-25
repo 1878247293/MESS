@@ -51,9 +51,6 @@ class MainArgs:
     batch_size: int = 512
 
 
-    # 高效匹配开关
-    use_efficient_matching: bool = False  # 单向搜索 + 反向验证
-
     # 是否自动套用每个数据集的最优参数
     use_dataset_config: bool = True
 

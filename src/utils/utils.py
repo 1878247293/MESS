@@ -21,7 +21,7 @@ def knn_search(value: np.array, ids: np.array, query: np.array, k: int, seed: in
         D: 邻居距离
     """
     if dim is None:
-        dim = value.shape[1]
+        dim = value.shape[1]#value (N, D)
 
     index = hnswlib.Index(space=metric, dim=dim)
     index.init_index(max_elements=len(value),

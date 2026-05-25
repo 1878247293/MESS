@@ -126,6 +126,10 @@ class ContrastiveLearner:
 
         labels = torch.arange(batch_size, device=self.device)
 
+#          exp([8.0, 2.0, 1.0]) = [2980.96, 7.39, 2.72]
+#          sum             = 2991.07
+#          Z_0 = log(2991.07) ≈ 8.0036
+#          nll_0 = Z_0 - S[0,0] = 8.0036 - 8.0 = 0.0036  ← 损失很小,正对得分远高于其他
         loss_12 = F.cross_entropy(similarity_matrix, labels)
         loss_21 = F.cross_entropy(similarity_matrix.t(), labels)
 
@@ -140,24 +144,26 @@ class ContrastiveLearner:
         total_loss = 0.0
         num_batches = 0
 
-        pbar = tqdm(dataloader, desc="Training", leave=False)
+        pbar = tqdm(dataloader, desc="Training", leave=False)#进度条包装
 
         for text_a_batch, text_b_batch in pbar:
             # 必须保留梯度，所以不能直接走 model.encode
-            features_a = self.model.tokenize(text_a_batch)
+            features_a = self.model.tokenize(text_a_batch)#把文本切成 token ID,留着后面继续走前向(梯度可传)
             features_b = self.model.tokenize(text_b_batch)
-
+            #CPU 搬到 GPU
             features_a = {k: v.to(self.device) for k, v in features_a.items()}
             features_b = {k: v.to(self.device) for k, v in features_b.items()}
 
-            # 走前向，拿 sentence_embedding
+            # 前向传播，拿 sentence_embedding
             embeddings_a = self.model(features_a)['sentence_embedding']
             embeddings_b = self.model(features_b)['sentence_embedding']
 
             loss = self.compute_contrastive_loss(embeddings_a, embeddings_b)
-
+            #清掉上一步累积的梯度
             optimizer.zero_grad()
+            #反向传播
             loss.backward()
+            #优化器按梯度更新权重
             optimizer.step()
 
             total_loss += loss.item()
@@ -179,7 +185,7 @@ class ContrastiveLearner:
         print("\n" + "=" * 60)
         print("supervised CL")
         print("=" * 60)
-
+        #读正样本对
         dataset = SupervisedPairDataset(data_path, data_name)
 
         print(f"config:")
@@ -248,7 +254,6 @@ def contrastive_finetune(model: SentenceTransformer,
     cache_path.mkdir(exist_ok=True)
 
     # 缓存名带数据集 / 模型类型 / 关键超参；保留 _supervised 后缀以兼容历史缓存目录
-    # minilm 不加 model_type 后缀是为了向后兼容老缓存
     model_type = getattr(args, 'model_type', 'minilm')
     if model_type == "minilm":
         cache_filename = f"{args.data_name}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}_supervised"

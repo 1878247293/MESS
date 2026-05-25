@@ -28,18 +28,17 @@ from utils import element_wise_cosine_sim
 
 
 def auto_selection(tables_df: List[pd.DataFrame], args: MainArgs):
-    table_df = pd.concat(tables_df, axis=0)
+    table_df = pd.concat(tables_df, axis=0)#表纵向拼接
     table_df = table_df.sample(frac=args.selection_rate)
 
-    trust_code = "modernbert" in str(args.lm_model_or_path).lower()
     model = SentenceTransformer(
         args.lm_model_or_path,
-        trust_remote_code=trust_code,
+        trust_remote_code=True,
         local_files_only=True,
     )
     model.max_seq_length = args.max_seq_length
     model.to(args.device)
-
+    #每行 DataFrame 拼成一句话
     sentences_before = textify_table(table_df)
     table_embeddings = model.encode(
         sentences_before,
@@ -66,8 +65,8 @@ def auto_selection(tables_df: List[pd.DataFrame], args: MainArgs):
             batch_size=args.batch_size,
             normalize_embeddings=True,
         )
-        sim = element_wise_cosine_sim(table_embeddings, table_embeddings_after)
-        mean_sim = np.mean(sim)
+        sim = element_wise_cosine_sim(table_embeddings, table_embeddings_after)#原向量 a · 打乱后向量 b 
+        mean_sim = np.mean(sim)#求均值
         attribute_scores[name] = float(mean_sim)
 
         if mean_sim <= args.col_sim_threshold:
