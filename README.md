@@ -30,13 +30,13 @@ MESS/
 - CUDA is recommended for embedding and training, but CPU mode is also possible
 - a local sentence-transformer model is expected by default
 
-For this project, a local MiniLM model is enough. Prepare:
+For this project, a local MiniLM model is enough. The backbone is the publicly available [`sentence-transformers/all-MiniLM-L12-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2). Prepare:
 
 - `model/all-MiniLM-L12-v2`
 
 If that folder does not exist, either:
 
-1. prepare it locally under `model/`, or
+1. download it from [Hugging Face](https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2) into `model/`, or
 2. override `--lm-model-or-path` when running
 
 ## Install
@@ -94,6 +94,19 @@ Bundled datasets are under `data/`:
 - `Shopee`
 
 Each dataset directory is expected to contain `table_*.csv` files and `ground_truth.txt`.
+
+## Main Results
+
+Performance of MESS across the six benchmark datasets, reported as Precision / Recall / F1 / p-F1 (%). Results are averaged over multiple runs, and MESS uses no human-labeled training data.
+
+| Dataset | P | R | F1 | p-F1 |
+|---|---|---|---|---|
+| Geo | 91.8 | 92.4 | 92.1 | 97.7 |
+| Music-20 | 93.1 | 91.0 | 92.0 | 96.7 |
+| Music-200 | 86.8 | 84.3 | 85.5 | 93.6 |
+| Music-2000 | 74.9 | 71.3 | 73.1 | 87.0 |
+| Person | 34.1 | 40.7 | 37.1 | 74.1 |
+| Shopee | 40.8 | 25.5 | 31.4 | 45.2 |
 
 ## LLM Training Data
 
