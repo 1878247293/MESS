@@ -1,6 +1,6 @@
-# SAGEM
+# MESS
 
-SAGEM is a multi-table entity matching project built around sentence embeddings, automatic attribute selection, contrastive fine-tuning, and table merging.
+MESS is a multi-table entity matching project built around sentence embeddings, automatic attribute selection, contrastive fine-tuning, and table merging.
 
 The repository currently includes:
 
@@ -13,7 +13,7 @@ The repository currently includes:
 ## Project Structure
 
 ```text
-SAGEM/
+MESS/
 |- data/                  # benchmark datasets
 |- llm_data_generator/    # LLM-based labeled-pair generation
 |- llm_training_data/     # generated labeled_pairs.json for supervised contrastive learning
