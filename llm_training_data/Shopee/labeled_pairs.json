@@ -2,12 +2,11 @@
   "metadata": {
     "dataset": "Shopee",
     "method": "llm_generated",
-    "description": "LLM 自动分析+生成的训练数据。电商产品标题匹配：印尼语Shopee商品标题。各表差异包括营销词增删、大小写、品牌缩写、语言混合、规格差异、词序重排",
+    "description": "LLM 自动分析+生成的训练数据。",
     "num_entity_groups": 200,
     "variants_per_entity": 8,
     "num_pairs": 5600,
-    "num_positive": 5600,
-    "generation_time": "2026-05-04T13:40:56.656300"
+    "num_positive": 5600
   },
   "entity_groups": [
     {

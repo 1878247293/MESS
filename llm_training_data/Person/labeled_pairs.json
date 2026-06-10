@@ -2,12 +2,11 @@
   "metadata": {
     "dataset": "Person",
     "method": "llm_generated",
-    "description": "LLM 自动分析+生成的训练数据。人名实体匹配：姓名+地址记录。",
+    "description": "LLM 自动分析+生成的训练数据。",
     "num_entity_groups": 200,
     "variants_per_entity": 5,
     "num_pairs": 2000,
-    "num_positive": 2000,
-    "generation_time": "2026-05-14T14:29:33.383278"
+    "num_positive": 2000
   },
   "entity_groups": [
     {

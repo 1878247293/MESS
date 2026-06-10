@@ -2,12 +2,11 @@
   "metadata": {
     "dataset": "Geo",
     "method": "llm_generated",
-    "description": "LLM 自动分析+生成的训练数据。地理位置实体匹配：城市/地点名称，含经纬度。各表差异包括大小写、国家限定词格式、坐标缺失、别名、Unicode重音",
+    "description": "LLM 自动分析+生成的训练数据。",
     "num_entity_groups": 200,
     "variants_per_entity": 4,
     "num_pairs": 1200,
-    "num_positive": 1200,
-    "generation_time": "2026-05-03T23:56:29.041801"
+    "num_positive": 1200
   },
   "entity_groups": [
     {

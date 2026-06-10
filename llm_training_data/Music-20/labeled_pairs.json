@@ -2,12 +2,11 @@
   "metadata": {
     "dataset": "Music-20",
     "method": "llm_generated",
-    "description": "LLM 自动分析+生成的训练数据。音乐实体匹配：歌曲记录来自不同数据库。",
+    "description": "LLM 自动分析+生成的训练数据。",
     "num_entity_groups": 200,
     "variants_per_entity": 5,
     "num_pairs": 2000,
-    "num_positive": 2000,
-    "generation_time": "2026-05-15T16:32:07.996280"
+    "num_positive": 2000
   },
   "entity_groups": [
     {

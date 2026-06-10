@@ -2,12 +2,11 @@
   "metadata": {
     "dataset": "Music-2000",
     "method": "llm_generated",
-    "description": "LLM 自动分析+生成的训练数据。音乐实体匹配：歌曲记录来自不同数据库。各表差异包括ID格式、标题嵌入方式、时长格式、年份格式、语言标注、艺术家位置、缩写扩写",
+    "description": "LLM 自动分析+生成的训练数据。",
     "num_entity_groups": 200,
     "variants_per_entity": 5,
     "num_pairs": 2000,
-    "num_positive": 2000,
-    "generation_time": "2026-05-04T05:19:41.831015"
+    "num_positive": 2000
   },
   "entity_groups": [
     {
