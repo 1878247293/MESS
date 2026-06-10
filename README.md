@@ -6,7 +6,6 @@ The repository currently includes:
 
 - the main matching pipeline
 - a contrastive training entrypoint
-- a Gradio web UI
 - an LLM-based training-data generator
 - bundled benchmark datasets
 
@@ -18,7 +17,6 @@ MESS/
 |- llm_data_generator/    # LLM-based labeled-pair generation
 |- llm_training_data/     # generated labeled_pairs.json for supervised contrastive learning
 |- src/                   # core implementation
-|- web/                   # Gradio UI
 |- main.py                # main entity matching pipeline
 |- train_contrastive.py   # contrastive fine-tuning entrypoint
 `- requirements.txt
@@ -66,21 +64,6 @@ This requires:
 ```text
 llm_training_data/<dataset>/labeled_pairs.json
 ```
-
-## Web UI
-
-Launch the Gradio interface with:
-
-```bash
-python -m web.app
-```
-
-If your environment is set up correctly, the UI will open a local Gradio app for:
-
-- main matching runs
-- contrastive-learning runs
-- LLM training-data generation
-- result browsing
 
 ## Datasets
 
