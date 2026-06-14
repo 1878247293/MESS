@@ -1,4 +1,4 @@
-"""LLM token 用量计数器，线程安全（ThreadPoolExecutor 里也能用）。"""
+"""LLM token-usage counter, thread-safe (usable inside a ThreadPoolExecutor)."""
 
 import json
 import threading
@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 class TokenTracker:
-    """按阶段累加 prompt / completion token，加锁所以并发安全"""
+    """Accumulate prompt / completion tokens per stage; locked, so concurrency-safe"""
 
     def __init__(self, model: str = ""):
         self.model = model
@@ -22,7 +22,7 @@ class TokenTracker:
 
     def record(self, prompt_tokens: int, completion_tokens: int,
                total_tokens: int = 0, stage: str = "default"):
-        """记一次调用。total_tokens 没传就两边相加。stage 可以是 analysis / generation 之类"""
+        """Record one call. If total_tokens is not passed, sum the two sides. stage may be analysis / generation, etc."""
         if total_tokens == 0:
             total_tokens = prompt_tokens + completion_tokens
         with self._lock:
@@ -32,7 +32,7 @@ class TokenTracker:
             s["completion_tokens"] += completion_tokens
             s["total_tokens"] += total_tokens
 
-    # 汇总查询
+    # aggregate queries
 
     @property
     def total_calls(self) -> int:
@@ -54,17 +54,17 @@ class TokenTracker:
         with self._lock:
             return sum(s["total_tokens"] for s in self._stages.values())
 
-    # 输出
+    # output
 
     def report(self, input_price: float = 0.0, output_price: float = 0.0):
-        """打印用量。
-        input_price / output_price 给单位 $/M tokens；为 0 就不估成本。
+        """Print usage.
+        input_price / output_price are in $/M tokens; if 0, cost is not estimated.
         """
         print(f"\n{'=' * 50}")
-        print("LLM Token 用量")
+        print("LLM Token Usage")
         print(f"{'=' * 50}")
         if self.model:
-            print(f"  模型: {self.model}")
+            print(f"  model: {self.model}")
 
         with self._lock:
             stages = dict(self._stages)
@@ -76,7 +76,7 @@ class TokenTracker:
             print(f"    output tokens: {s['completion_tokens']:,}")
             print(f"    total tokens:  {s['total_tokens']:,}")
 
-        print(f"\n  [总计]")
+        print(f"\n  [Total]")
         print(f"    calls:        {self.total_calls}")
         print(f"    prompt:       {self.total_prompt_tokens:,}")
         print(f"    output:       {self.total_completion_tokens:,}")
@@ -86,7 +86,7 @@ class TokenTracker:
             cost_input = self.total_prompt_tokens / 1_000_000 * input_price
             cost_output = self.total_completion_tokens / 1_000_000 * output_price
             cost_total = cost_input + cost_output
-            print(f"\n  [成本估算] (input=${input_price}/M, output=${output_price}/M)")
+            print(f"\n  [Cost estimate] (input=${input_price}/M, output=${output_price}/M)")
             print(f"    input cost:  ${cost_input:.4f}")
             print(f"    output cost: ${cost_output:.4f}")
             print(f"    total cost:  ${cost_total:.4f}")
@@ -113,4 +113,4 @@ class TokenTracker:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
-        print(f"  token 统计 -> {output_path}")
+        print(f"  token stats -> {output_path}")

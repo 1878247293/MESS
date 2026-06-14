@@ -1,4 +1,4 @@
-"""vLLM OpenAI 兼容 API 客户端，与 OllamaClient 接口一致。"""
+"""vLLM OpenAI-compatible API client, with the same interface as OllamaClient."""
 
 import json
 import re
@@ -21,7 +21,7 @@ class VllmClient:
 
     def chat(self, messages: list, temperature: float = None,
              force_json: bool = True) -> str:
-        """发送聊天请求，返回助手回复文本。"""
+        """Send a chat request and return the assistant's reply text."""
         temp = temperature if temperature is not None else self.temperature
         payload = {
             "model": self.model,
@@ -42,9 +42,9 @@ class VllmClient:
                 resp.raise_for_status()
                 data = resp.json()
                 if "error" in data:
-                    raise RuntimeError(f"vLLM 返回错误: {data['error']}")
+                    raise RuntimeError(f"vLLM returned an error: {data['error']}")
                 content = data["choices"][0]["message"]["content"]
-                # 提取 token 用量
+                # extract token usage
                 if self.token_tracker and "usage" in data:
                     u = data["usage"]
                     self.token_tracker.record(
@@ -57,15 +57,15 @@ class VllmClient:
             except (requests.ConnectionError, requests.Timeout) as e:
                 if attempt < self.max_retries - 1:
                     wait = 2 ** attempt
-                    print(f"  连接失败，{wait}s 后重试: {e}")
+                    print(f"  connection failed, retrying in {wait}s: {e}")
                     time.sleep(wait)
                 else:
-                    raise RuntimeError(f"vLLM 连接失败 ({self.max_retries} 次重试后): {e}")
+                    raise RuntimeError(f"vLLM connection failed (after {self.max_retries} retries): {e}")
             except requests.HTTPError as e:
-                raise RuntimeError(f"vLLM HTTP 错误: {e}\n响应: {resp.text}")
+                raise RuntimeError(f"vLLM HTTP error: {e}\nresponse: {resp.text}")
 
     def chat_json(self, messages: list, temperature: float = None) -> dict:
-        """发送聊天请求，解析 JSON 响应（带容错重试）。"""
+        """Send a chat request and parse the JSON response (with fault-tolerant retries)."""
         current_messages = list(messages)
 
         for attempt in range(self.max_retries):
@@ -74,17 +74,17 @@ class VllmClient:
             if result is not None:
                 return result
 
-            print(f"  JSON 解析失败 (尝试 {attempt + 1}/{self.max_retries})，重试中...")
+            print(f"  JSON parsing failed (attempt {attempt + 1}/{self.max_retries}), retrying...")
             current_messages = list(messages) + [
                 {"role": "assistant", "content": text},
-                {"role": "user", "content": "你的回答不是有效 JSON。请只返回纯 JSON，不要任何额外文字或 markdown 代码块标记。"},
+                {"role": "user", "content": "Your reply was not valid JSON. Return pure JSON only, with no extra text or markdown code-block markers."},
             ]
 
-        raise RuntimeError(f"JSON 解析失败 ({self.max_retries} 次重试后)。最后的响应:\n{text[:500]}")
+        raise RuntimeError(f"JSON parsing failed (after {self.max_retries} retries). Last response:\n{text[:500]}")
 
     @staticmethod
     def _try_parse_json(text: str):
-        """尝试从文本中提取 JSON，返回 dict 或 None。"""
+        """Try to extract JSON from the text, returning a dict or None."""
         cleaned = VllmClient._repair_json(text)
 
         for candidate in [cleaned, text]:
@@ -138,12 +138,12 @@ class VllmClient:
 
     @staticmethod
     def _repair_json(text: str) -> str:
-        """修复常见的 LLM JSON 错误。"""
+        """Repair common LLM JSON errors."""
         text = re.sub(r',\s*""(?!\s*:)', '', text)
         return text
 
     def check_connection(self) -> bool:
-        """检查 vLLM 服务是否可用。"""
+        """Check whether the vLLM service is available."""
         try:
             resp = requests.get(f"{self.base_url}/v1/models", timeout=5)
             return resp.status_code == 200
@@ -151,7 +151,7 @@ class VllmClient:
             return False
 
     def list_models(self) -> list:
-        """列出可用模型。"""
+        """List available models."""
         try:
             resp = requests.get(f"{self.base_url}/v1/models", timeout=5)
             resp.raise_for_status()

@@ -1,19 +1,22 @@
 """
-属性选择（EER, Embedding Equivalence Removal）。
+Attribute selection (EER, Embedding Equivalence Removal).
 
-主流程的第一阶段。目的：剔除对实体身份没影响的列（如随机 ID），只保留真正能区分
-实体的属性，减小后续 KNN 搜索的噪声。
+The first stage of the main pipeline. Goal: remove columns that do not affect entity identity
+(such as random IDs), keeping only the attributes that truly distinguish entities, to reduce
+noise in the subsequent KNN search.
 
-做法：对每个候选列，把该列整列打乱后重新编码整张表，与原始编码做逐行 cosine。
-如果均值相似度 `mean_sim ≤ col_sim_threshold`，说明这列被打乱后行向量变化大，
-对身份重要，保留；否则丢弃。结果可以被 selector_cache 缓存复用。
+Method: for each candidate column, shuffle the entire column, re-encode the whole table, and
+compute a row-wise cosine against the original encoding. If the mean similarity
+`mean_sim <= col_sim_threshold`, the row vectors change a lot when the column is shuffled, so the
+column matters for identity and is kept; otherwise it is discarded. The result can be cached and
+reused by selector_cache.
 """
 
 from typing import List
 import os
 
-# 在 import HF / SentenceTransformers 之前先把离线开关打开
-# 否则属性选择阶段偶尔会偷偷探测网络
+# turn on the offline switches before importing HF / SentenceTransformers
+# otherwise the attribute-selection stage occasionally probes the network silently
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
@@ -28,7 +31,7 @@ from utils import element_wise_cosine_sim
 
 
 def auto_selection(tables_df: List[pd.DataFrame], args: MainArgs):
-    table_df = pd.concat(tables_df, axis=0)#表纵向拼接
+    table_df = pd.concat(tables_df, axis=0)  # concatenate tables vertically
     table_df = table_df.sample(frac=args.selection_rate)
 
     model = SentenceTransformer(
@@ -38,7 +41,7 @@ def auto_selection(tables_df: List[pd.DataFrame], args: MainArgs):
     )
     model.max_seq_length = args.max_seq_length
     model.to(args.device)
-    #每行 DataFrame 拼成一句话
+    # join each DataFrame row into one sentence
     sentences_before = textify_table(table_df)
     table_embeddings = model.encode(
         sentences_before,
@@ -65,8 +68,8 @@ def auto_selection(tables_df: List[pd.DataFrame], args: MainArgs):
             batch_size=args.batch_size,
             normalize_embeddings=True,
         )
-        sim = element_wise_cosine_sim(table_embeddings, table_embeddings_after)#原向量 a · 打乱后向量 b 
-        mean_sim = np.mean(sim)#求均值
+        sim = element_wise_cosine_sim(table_embeddings, table_embeddings_after)  # original vector a . shuffled vector b
+        mean_sim = np.mean(sim)  # take the mean
         attribute_scores[name] = float(mean_sim)
 
         if mean_sim <= args.col_sim_threshold:

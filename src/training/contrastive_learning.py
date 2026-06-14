@@ -1,8 +1,8 @@
 """
-对比学习训练 — Sentence-BERT 微调。
+Contrastive learning training — Sentence-BERT fine-tuning.
 
-实现 SimCLR 那一套：InfoNCE + 批内负采样。
-从 labeled_pairs.json 读现成的正对作为监督信号。
+Implements the SimCLR approach: InfoNCE + in-batch negative sampling.
+Reads ready-made positive pairs from labeled_pairs.json as the supervision signal.
 """
 
 import json
@@ -17,37 +17,37 @@ from tqdm import tqdm
 
 def _load_cached_weights(model: SentenceTransformer, cache_model_path: Path) -> SentenceTransformer:
     """
-    复用已经实例化好的 SentenceTransformer，只把缓存里的权重灌进去。
-    避免再走一次 SentenceTransformer(path)，那个加载链路比较慢。
+    Reuse an already-instantiated SentenceTransformer, only loading the cached weights into it.
+    Avoids going through SentenceTransformer(path) again, whose loading path is relatively slow.
     """
     weights_path = cache_model_path / "model.safetensors"
     if weights_path.exists():
         state_dict = load_safetensors(str(weights_path), device=str(model.device))
         model[0].auto_model.load_state_dict(state_dict)
     else:
-        # 兜底：老版本可能存的是 .bin
+        # fallback: older versions may have saved a .bin
         weights_path = cache_model_path / "pytorch_model.bin"
         state_dict = torch.load(str(weights_path), map_location=model.device)
         model[0].auto_model.load_state_dict(state_dict)
     return model
 
 
-# 数据集
+# datasets
 
 class SupervisedPairDataset(Dataset):
-    """从标注文件读正对"""
+    """Read positive pairs from the labeled file"""
 
     def __init__(self, data_path: str, data_name: str):
         json_file = Path(data_path) / data_name / "labeled_pairs.json"
         with open(json_file, encoding="utf-8") as f:
             data = json.load(f)
-        # 两种历史格式都兼容
-        # 新版直接是 pairs（全是正对），老版是 triplets，要按 label==1 过一道
+        # support both historical formats
+        # the new format is directly pairs (all positive), the old one is triplets, filtered by label==1
         if "pairs" in data:
             self.pairs = [(t[0], t[1]) for t in data["pairs"]]
         else:
             self.pairs = [(t[0], t[1]) for t in data["triplets"] if t[2] == 1]
-        print(f"[SupervisedPairDataset] 加载 {len(self.pairs)} 个正对 (from {json_file})")
+        print(f"[SupervisedPairDataset] loaded {len(self.pairs)} positive pairs (from {json_file})")
 
     def __len__(self):
         return len(self.pairs)
@@ -57,7 +57,7 @@ class SupervisedPairDataset(Dataset):
 
 
 class ContrastiveLearner:
-    """训练壳，把模型 / 损失 / 多卡 / 日志包到一起"""
+    """Training wrapper that bundles model / loss / multi-GPU / logging together"""
 
     def __init__(self,
                  base_model: SentenceTransformer,
@@ -70,7 +70,7 @@ class ContrastiveLearner:
 
         self.model.to(self.device)
 
-        # 多卡：用 DataParallel 包底层 transformer
+        # multi-GPU: wrap the underlying transformer with DataParallel
         self._using_data_parallel = False
         if multi_gpu and self.device.startswith('cuda') and torch.cuda.device_count() > 1:
             transformer = self.model._first_module()
@@ -87,14 +87,14 @@ class ContrastiveLearner:
         print(f"  - temperature: {self.temperature}")
 
     def _unwrap_data_parallel(self):
-        """训完之后还原模型，DataParallel 包着的没法直接 save"""
+        """Restore the model after training; a DataParallel-wrapped model cannot be saved directly"""
         if self._using_data_parallel:
             transformer = self.model._first_module()
             transformer.auto_model = transformer.auto_model.module
             self._using_data_parallel = False
 
     def _save_loss_log(self, loss_history: list, epochs: int, data_name: str = "unknown"):
-        """每个 epoch 的 loss 落盘 JSON，方便后面画曲线"""
+        """Write each epoch's loss to a JSON file, for plotting curves later"""
         log_dir = Path("training_logs")
         log_dir.mkdir(exist_ok=True)
         log_data = {
@@ -105,31 +105,31 @@ class ContrastiveLearner:
         log_path = log_dir / f"{data_name}_loss.json"
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=2, ensure_ascii=False)
-        print(f"  loss 日志: {log_path}")
+        print(f"  loss log: {log_path}")
 
     def compute_contrastive_loss(self,
                                   embeddings1: torch.Tensor,
                                   embeddings2: torch.Tensor) -> torch.Tensor:
         """
-        InfoNCE，双向都算一遍取平均。
+        InfoNCE, computed in both directions and averaged.
 
         L = -log( exp(sim(z_i, z_i+) / tau) / sum_j exp(sim(z_i, z_j) / tau) )
         """
         batch_size = embeddings1.shape[0]
 
-        # 归一化后用余弦相似度
+        # normalize, then use cosine similarity
         embeddings1 = F.normalize(embeddings1, dim=1)
         embeddings2 = F.normalize(embeddings2, dim=1)
 
-        # [B, B] 的相似度矩阵，正对在对角线上
+        # [B, B] similarity matrix, positive pairs on the diagonal
         similarity_matrix = torch.mm(embeddings1, embeddings2.t()) / self.temperature
 
         labels = torch.arange(batch_size, device=self.device)
 
 #          exp([8.0, 2.0, 1.0]) = [2980.96, 7.39, 2.72]
 #          sum             = 2991.07
-#          Z_0 = log(2991.07) ≈ 8.0036
-#          nll_0 = Z_0 - S[0,0] = 8.0036 - 8.0 = 0.0036  ← 损失很小,正对得分远高于其他
+#          Z_0 = log(2991.07) ~= 8.0036
+#          nll_0 = Z_0 - S[0,0] = 8.0036 - 8.0 = 0.0036  <- very small loss; the positive pair scores far higher than the rest
         loss_12 = F.cross_entropy(similarity_matrix, labels)
         loss_21 = F.cross_entropy(similarity_matrix.t(), labels)
 
@@ -144,26 +144,26 @@ class ContrastiveLearner:
         total_loss = 0.0
         num_batches = 0
 
-        pbar = tqdm(dataloader, desc="Training", leave=False)#进度条包装
+        pbar = tqdm(dataloader, desc="Training", leave=False)  # progress-bar wrapper
 
         for text_a_batch, text_b_batch in pbar:
-            # 必须保留梯度，所以不能直接走 model.encode
-            features_a = self.model.tokenize(text_a_batch)#把文本切成 token ID,留着后面继续走前向(梯度可传)
+            # gradients must be retained, so we cannot use model.encode directly
+            features_a = self.model.tokenize(text_a_batch)  # split text into token IDs, kept for the forward pass (gradients can flow)
             features_b = self.model.tokenize(text_b_batch)
-            #CPU 搬到 GPU
+            # move from CPU to GPU
             features_a = {k: v.to(self.device) for k, v in features_a.items()}
             features_b = {k: v.to(self.device) for k, v in features_b.items()}
 
-            # 前向传播，拿 sentence_embedding
+            # forward pass to get sentence_embedding
             embeddings_a = self.model(features_a)['sentence_embedding']
             embeddings_b = self.model(features_b)['sentence_embedding']
 
             loss = self.compute_contrastive_loss(embeddings_a, embeddings_b)
-            #清掉上一步累积的梯度
+            # clear gradients accumulated from the previous step
             optimizer.zero_grad()
-            #反向传播
+            # backpropagation
             loss.backward()
-            #优化器按梯度更新权重
+            # the optimizer updates weights according to the gradients
             optimizer.step()
 
             total_loss += loss.item()
@@ -181,15 +181,15 @@ class ContrastiveLearner:
               batch_size: int = 64,
               learning_rate: float = 1e-5,
               warmup_steps: int = 100) -> SentenceTransformer:
-        """从 labeled_pairs.json 读正对训练"""
+        """Train on positive pairs read from labeled_pairs.json"""
         print("\n" + "=" * 60)
         print("supervised CL")
         print("=" * 60)
-        #读正样本对
+        # read positive pairs
         dataset = SupervisedPairDataset(data_path, data_name)
 
         print(f"config:")
-        print(f"  - 正对数: {len(dataset)}")
+        print(f"  - num positive pairs: {len(dataset)}")
         print(f"  - epochs: {epochs}")
         print(f"  - batch_size: {batch_size}")
         print(f"  - lr: {learning_rate}")
@@ -215,7 +215,7 @@ class ContrastiveLearner:
             else max(0.1, 1.0 - (step - warmup_steps) / (total_steps - warmup_steps))
         )
 
-        print(f"\n开始训练 (total steps = {total_steps})...\n")
+        print(f"\nstarting training (total steps = {total_steps})...\n")
 
         best_loss = float('inf')
         loss_history = []
@@ -247,13 +247,14 @@ def contrastive_finetune(model: SentenceTransformer,
                          args,
                          cache_dir: str = "finetuned_models") -> SentenceTransformer:
     """
-    有监督对比学习入口。标注正对从 cl_training_data_dir/{data_name}/labeled_pairs.json 读。
-    命中缓存就直接载权重，没命中就训练完再保存。
+    Entry point for supervised contrastive learning. Labeled positive pairs are read from
+    cl_training_data_dir/{data_name}/labeled_pairs.json.
+    On a cache hit, load the weights directly; on a miss, train and then save.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(exist_ok=True)
 
-    # 缓存名带数据集 / 模型类型 / 关键超参；保留 _supervised 后缀以兼容历史缓存目录
+    # the cache name includes dataset / model type / key hyperparameters; keep the _supervised suffix for compatibility with historical cache directories
     model_type = getattr(args, 'model_type', 'minilm')
     if model_type == "minilm":
         cache_filename = f"{args.data_name}_cl_epochs{args.cl_epochs}_lr{args.cl_learning_rate}_temp{args.cl_temperature}_supervised"
@@ -263,23 +264,23 @@ def contrastive_finetune(model: SentenceTransformer,
 
     if cache_model_path.exists() and not args.force_retrain:
         print("\n" + "=" * 60)
-        print("命中缓存的微调模型")
+        print("Cache hit on fine-tuned model")
         print("=" * 60)
         print(f"  path: {cache_model_path}")
         print(f"  dataset: {args.data_name}")
-        print(f"  跳过训练，直接加载...")
+        print(f"  skipping training, loading directly...")
         print("=" * 60 + "\n")
 
         try:
             _load_cached_weights(model, cache_model_path)
-            print(f"载入成功: {cache_filename}\n")
+            print(f"loaded successfully: {cache_filename}\n")
             return model
         except Exception as e:
-            print(f"载入失败: {e}")
-            print("回退到训练流程...\n")
+            print(f"failed to load: {e}")
+            print("falling back to the training flow...\n")
 
     print("\n" + "=" * 60)
-    print("没有缓存，开始训练...")
+    print("No cache, starting training...")
     print("=" * 60 + "\n")
 
     learner = ContrastiveLearner(
@@ -298,14 +299,14 @@ def contrastive_finetune(model: SentenceTransformer,
     )
 
     print("\n" + "=" * 60)
-    print("写入缓存...")
+    print("Writing cache...")
     print("=" * 60)
     try:
         finetuned_model.save(str(cache_model_path))
         print(f"saved: {cache_model_path}")
-        print(f"  下次同参数运行直接走缓存")
+        print(f"  the next run with the same parameters will use the cache directly")
     except Exception as e:
-        print(f"save 失败: {e}")
+        print(f"save failed: {e}")
     print("=" * 60 + "\n")
 
     return finetuned_model

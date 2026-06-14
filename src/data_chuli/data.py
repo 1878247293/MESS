@@ -1,13 +1,13 @@
 """
-数据层基础设施。
+Data-layer infrastructure.
 
-提供：
-- `Table` dataclass：tids（实体在全局向量数组里的下标）+ tuple_ids（每个 tid 属于的分组），
-  `get_tuples` 把分组拍平成 `[(tid, tid, ...), ...]` 的预测结果。
-- `read_all_tables / read_table`：扫 `table_*.csv`，支持只读选中列、按 sample_rate 下采样
-  （采样时 tid 会重新映射成连续整数，下游靠 tid 直接做数组下标）。
-- `read_ground_truth`：读 `ground_truth.txt` 的元组列表，评估时用。
-- `textify_table`：把表的每一行（除 tid 列）拼成一句字符串，喂给 SentenceTransformer。
+Provides:
+- `Table` dataclass: tids (indices of entities in the global vector array) + tuple_ids (the group each tid belongs to);
+  `get_tuples` flattens the groups into the prediction result `[(tid, tid, ...), ...]`.
+- `read_all_tables / read_table`: scan `table_*.csv`, supporting reading only selected columns and downsampling by sample_rate
+  (when sampling, tid is remapped to consecutive integers, since downstream uses tid directly as an array index).
+- `read_ground_truth`: read the tuple list from `ground_truth.txt`, used during evaluation.
+- `textify_table`: join each row of the table (excluding the tid column) into a single sentence to feed to SentenceTransformer.
 """
 
 from dataclasses import dataclass
@@ -47,12 +47,12 @@ def read_table(data_path: Path, selected_attrs=None, sample_rate=1.0):
         table = pd.read_csv(
             data_path, dtype={"postcode": str}, usecols=selected_attrs)
 
-    # 大表内存吃不消时下采样
+    # downsample when a large table does not fit in memory
     if sample_rate < 1.0:
         table = table.sample(frac=sample_rate, random_state=3407).reset_index(drop=True)
-        # 关键：tid 必须重映射成 0..n 连续，下游会拿 tid 直接当 embeddings 数组的下标
+        # key: tid must be remapped to consecutive 0..n, since downstream uses tid directly as an index into the embeddings array
         table['tid'] = range(len(table))
-        log(f"  采样率: {sample_rate:.2f}, 采样后: {len(table)} 行")
+        log(f"  sample rate: {sample_rate:.2f}, after sampling: {len(table)} rows")
 
     return table
 
@@ -60,7 +60,7 @@ def read_table(data_path: Path, selected_attrs=None, sample_rate=1.0):
 def read_all_tables(data_path: Path, num=-1, selected_attrs=None, sample_rate=1.0) -> Tuple[int, List[pd.DataFrame]]:
     log(f"selected_attrs: {selected_attrs}")
     if sample_rate < 1.0:
-        log(f"采样模式: rate = {sample_rate:.2f}")
+        log(f"sampling mode: rate = {sample_rate:.2f}")
     i = 0
     tables = []
     while (data_path / f"table_{i}.csv").is_file():
@@ -83,13 +83,13 @@ def read_pair_ground_truth(data_path: Path, i: int, j: int) -> List[Tuple[int]]:
 
 
 def textify_table(table: pd.DataFrame):
-    """把整张表拍成一列字符串，每行拼成一句"""
-    # 只剩 tid 一列时，没法拼属性，就退化成 entity_<tid>
+    """Flatten the whole table into a column of strings, joining each row into one sentence"""
+    # when only the tid column remains, there are no attributes to join, so fall back to entity_<tid>
     if table.shape[1] <= 1:
         log("Warning: only tid column, using tid as entity text")
         sentences = table.iloc[:, 0].astype(str).apply(lambda x: "entity_" + x).tolist()
     else:
-        # 正常情况：除 tid 外的列拼起来
+        # normal case: join the columns other than tid
         sentences = table.iloc[:, 1:] \
             .astype(str) \
             .apply(lambda x: x + " ", axis=0) \

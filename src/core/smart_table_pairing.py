@@ -1,7 +1,7 @@
 """
-表配对策略：层次合并时，决定哪两张表先合。
+Table pairing strategy: during hierarchical merging, decide which two tables to merge first.
 
-按表语义中心相似度从高到低做贪心配对。
+Greedy pairing by table semantic-center similarity, from highest to lowest.
 """
 
 import numpy as np
@@ -20,13 +20,13 @@ class SmartTablePairing:
 
     def compute_table_centers(self, tables: List[Table], embeddings: np.array) -> np.array:
         """
-        每张表的语义中心：表里所有实体 embedding 的平均，再 L2 归一化。
+        Semantic center of each table: the mean of all entity embeddings in the table, then L2-normalized.
         """
         centers = []
         for table in tables:
-            table_embeddings = embeddings[table.tids]#获取所有编码
-            center = table_embeddings.mean(axis=0)# 求平均
-            center_norm = np.linalg.norm(center)#算向量模长
+            table_embeddings = embeddings[table.tids]  # get all encodings
+            center = table_embeddings.mean(axis=0)  # take the mean
+            center_norm = np.linalg.norm(center)  # compute the vector norm
             if center_norm > 0:
                 center = center / center_norm
             centers.append(center)
@@ -34,13 +34,13 @@ class SmartTablePairing:
         return np.array(centers)
 
     def compute_similarity_matrix(self, centers: np.array) -> np.array:
-        """对称的余弦相似度矩阵"""
+        """Symmetric cosine similarity matrix"""
         n = len(centers)
         sim_matrix = np.zeros((n, n))
 
         for i in range(n):
             for j in range(i+1, n):
-                # 中心已归一化，点积就是 cosine
+                # centers are already normalized, so the dot product is the cosine
                 sim = np.dot(centers[i], centers[j])
                 sim_matrix[i, j] = sim
                 sim_matrix[j, i] = sim
@@ -52,11 +52,11 @@ class SmartTablePairing:
     def greedy_pairing_by_similarity(self, tables: List[Table],
                                       sim_matrix: np.array) -> Tuple[List[Tuple[int, int]], List[int]]:
         """
-        贪心：sim 排序，从高到低顺次配对，已配过的跳过。
+        Greedy: sort by sim and pair sequentially from highest to lowest, skipping already-paired tables.
         """
         n = len(tables)
-        paired = set()# 已经被配过的表索引
-        pairs = []# 最终的配对结果
+        paired = set()  # indices of tables already paired
+        pairs = []  # the final pairing result
 
         similarities = []
         for i in range(n):
@@ -83,9 +83,9 @@ class SmartTablePairing:
 
     def get_smart_pairing(self, tables: List[Table],
                           embeddings: np.array) -> Tuple[List[Tuple[int, int]], List[int]]:
-        """按语义相似度贪心配对"""
+        """Greedy pairing by semantic similarity"""
         n = len(tables)
-        self.stats['total_pairings'] += 1# 记录总次数
+        self.stats['total_pairings'] += 1  # record the total count
 
         log(f"Smart pairing, {n} tables")
 
@@ -96,9 +96,9 @@ class SmartTablePairing:
         if n == 2:
             return [(0, 1)], []
 
-        centers = self.compute_table_centers(tables, embeddings)#算"表语义中心"
-        sim_matrix = self.compute_similarity_matrix(centers)#算相似度矩阵
-        pairs, unpaired = self.greedy_pairing_by_similarity(tables, sim_matrix)#贪心配对
+        centers = self.compute_table_centers(tables, embeddings)  # compute the "table semantic centers"
+        sim_matrix = self.compute_similarity_matrix(centers)  # compute the similarity matrix
+        pairs, unpaired = self.greedy_pairing_by_similarity(tables, sim_matrix)  # greedy pairing
 
         log(f"Pairing completed: {len(pairs)} pairs, {len(unpaired)} unpaired")
 

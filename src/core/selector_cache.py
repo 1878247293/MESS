@@ -1,9 +1,9 @@
 """
-属性选择结果缓存。
+Cache for attribute-selection results.
 
-属性选择跑一次比较慢，所以同样 (dataset, threshold, rate, model) 命中就直接复用。
-缓存目录：cache/attribute_selection/
-缓存文件：{dataset}_gamma{th}_rate{r}_{model}.json
+Attribute selection is slow to run once, so the same (dataset, threshold, rate, model) is reused on a hit.
+Cache directory: cache/attribute_selection/
+Cache file: {dataset}_gamma{th}_rate{r}_{model}.json
 """
 
 import json
@@ -16,14 +16,14 @@ from log import log
 
 @dataclass
 class AttributeSelectionCache:
-    dataset_name: str# 数据集名（区分不同任务）
-    selected_attrs: List[str]# 选中的列名（核心结果）
-    col_sim_threshold: float# 用的阈值 γ
-    selection_rate: float# 用的采样率
-    model_name: str# 用的编码模型
-    max_seq_length: int# 最大序列长度（仅记录用）
-    timestamp: str # 缓存写入时间
-    selection_time: float# 原始计算耗时（秒）→ 下次命中能告诉你省了多少
+    dataset_name: str  # dataset name (to distinguish tasks)
+    selected_attrs: List[str]  # selected column names (the core result)
+    col_sim_threshold: float  # the threshold gamma used
+    selection_rate: float  # the sampling rate used
+    model_name: str  # the encoding model used
+    max_seq_length: int  # maximum sequence length (recorded for reference only)
+    timestamp: str  # time the cache was written
+    selection_time: float  # original computation time (seconds) -> on the next hit, tells you how much was saved
 
 
 class AttributeSelectionCacheManager:
@@ -33,9 +33,9 @@ class AttributeSelectionCacheManager:
 
     def _get_cache_key(self, dataset_name: str, col_sim_threshold: float,
                        selection_rate: float, model_name: str) -> str:
-        # 不同模型相似度分布不一样，曾经共享缓存吃过亏，必须把模型名加进 key
-        _model_snippet = model_name.split('/')[-1]#"sentence-transformers/all-MiniLM-L12-v2"-》 "all-MiniLM-L12-v2"
-        return f"{dataset_name}_gamma{col_sim_threshold}_rate{selection_rate}_{_model_snippet}"#Music-20_gamma0.9_rate0.2_all-MiniLM-L12-v2
+        # different models have different similarity distributions; sharing a cache caused problems before, so the model name must be part of the key
+        _model_snippet = model_name.split('/')[-1]  # "sentence-transformers/all-MiniLM-L12-v2" -> "all-MiniLM-L12-v2"
+        return f"{dataset_name}_gamma{col_sim_threshold}_rate{selection_rate}_{_model_snippet}"  # e.g. Music-20_gamma0.9_rate0.2_all-MiniLM-L12-v2
 
     def _get_cache_path(self, cache_key: str) -> Path:
         return self.cache_dir / f"{cache_key}.json"
@@ -59,14 +59,14 @@ class AttributeSelectionCacheManager:
                 data = json.load(f)
 
             cache = AttributeSelectionCache(**data)
-            log(f"命中缓存: {cache_path.name}")
+            log(f"cache hit: {cache_path.name}")
             log(f"  selected_attrs: {cache.selected_attrs}")
-            log(f"  原始耗时: {cache.selection_time:.2f}s ({cache.selection_time/60:.1f}min)")
-            log(f"  缓存时间: {cache.timestamp}")
+            log(f"  original time: {cache.selection_time:.2f}s ({cache.selection_time/60:.1f}min)")
+            log(f"  cached at: {cache.timestamp}")
 
             return cache
         except Exception as e:
-            log(f"读缓存失败: {e}")
+            log(f"failed to read cache: {e}")
             return None
 
     def save_cache(self, dataset_name: str, selected_attrs: List[str],
@@ -93,14 +93,14 @@ class AttributeSelectionCacheManager:
             with open(cache_path, 'w', encoding='utf-8') as f:
                 json.dump(asdict(cache), f, indent=2, ensure_ascii=False)
 
-            log(f"缓存已写入: {cache_path.name}")
+            log(f"cache written: {cache_path.name}")
             log(f"  selected_attrs: {selected_attrs}")
-            log(f"  下次同参数运行可省 {selection_time/60:.1f} min")
+            log(f"  next run with the same parameters can save {selection_time/60:.1f} min")
         except Exception as e:
-            log(f"写缓存失败: {e}")
+            log(f"failed to write cache: {e}")
 
     def clear_cache(self, dataset_name: Optional[str] = None) -> None:
-        """传 dataset_name 就只清那个数据集；不传就全清"""
+        """If dataset_name is given, clear only that dataset; otherwise clear everything"""
         if dataset_name:
             pattern = f"{dataset_name}_*.json"
             cache_files = list(self.cache_dir.glob(pattern))
@@ -109,16 +109,16 @@ class AttributeSelectionCacheManager:
 
         for cache_file in cache_files:
             cache_file.unlink()
-            log(f"删除: {cache_file.name}")
+            log(f"deleted: {cache_file.name}")
 
-        log(f"共清掉 {len(cache_files)} 个缓存文件")
+        log(f"cleared {len(cache_files)} cache files in total")
 
     def list_caches(self) -> List[str]:
         cache_files = sorted(self.cache_dir.glob("*.json"))
         return [f.stem for f in cache_files]
 
 
-# 单例
+# singleton
 _cache_manager = AttributeSelectionCacheManager()
 
 
@@ -127,7 +127,7 @@ def get_cache_manager() -> AttributeSelectionCacheManager:
 
 
 if __name__ == "__main__":
-    # 跑一遍 save / load / list
+    # run through save / load / list once
     manager = AttributeSelectionCacheManager()
 
     manager.save_cache(

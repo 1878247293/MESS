@@ -1,10 +1,10 @@
 """
-评估指标。
+Evaluation metrics.
 
-- `evaluate_f1` —— tuple 集合层面 P/R/F1。
-- `evaluate_pair_f1` —— 把 tuple 拆成两两组合再算 F1，衡量"对的配上没"。
-- `evaluate_f1_with_output` —— 在算 F1 的同时把预测分组分四类（完全正确 / 漏匹配 /
-  误匹配-超集 / 误匹配-其他）写到 txt，方便人工排查。
+- `evaluate_f1` -- P/R/F1 at the tuple-set level.
+- `evaluate_pair_f1` -- break tuples into pairwise combinations and compute F1, measuring whether the right items got matched.
+- `evaluate_f1_with_output` -- while computing F1, also write the predicted groups in four categories
+  (exact correct / missed match / mis-match-superset / mis-match-other) to a txt for manual inspection.
 """
 
 from dataclasses import dataclass
@@ -61,32 +61,32 @@ def evaluate_log(ground_truth: List[Tuple], prediction: List[Tuple]):
 def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                              tid_to_name: dict, output_file: str) -> Metric:
     """
-    在算 F1 的同时把预测分组按四类写出来，便于人工排查：
-      1. 误匹配-其他（mis-match other）：包含错误成员或者完全错
-      2. 误匹配-超集（mis-match superset）：覆盖了正确组但额外塞了别的
-      3. 漏匹配（miss-match）：是正确组的真子集
-      4. 完全正确（correct match）
+    While computing F1, write out the predicted groups in four categories for manual inspection:
+      1. mis-match other: contains wrong members or is entirely wrong
+      2. mis-match superset: covers the correct group but includes extra items
+      3. miss-match: a proper subset of the correct group
+      4. correct match
 
     Args:
-        ground_truth: 真实分组
-        prediction: 预测分组
-        tid_to_name: tid -> 文本
-        output_file: 输出路径
+        ground_truth: the true groups
+        prediction: the predicted groups
+        tid_to_name: tid -> text
+        output_file: output path
     """
     ground_truth_set = set(ground_truth)
     prediction_set = set(prediction)
 
-    # 完全一致的
+    # exact matches
     correct_match = ground_truth_set.intersection(prediction_set)
 
-    # 不一致的逐个分类
+    # classify the mismatches one by one
     incorrect_predictions = prediction_set - correct_match
 
-    miss_match = set()           # 真子集
-    mis_match_superset = set()   # 真超集
-    mis_match_other = set()      # 其他
+    miss_match = set()           # proper subset
+    mis_match_superset = set()   # proper superset
+    mis_match_other = set()      # other
 
-    # tid -> 它属于的 GT 组
+    # tid -> the GT group it belongs to
     tid_to_gt_group = {}
     for gt_tuple in ground_truth:
         for tid in gt_tuple:
@@ -98,7 +98,7 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
 
         pred_set = set(pred)
 
-        # pred 里大多数实体来自哪个 GT 组
+        # which GT group most entities in pred come from
         gt_counts = {}
         for tid in pred:
             gt = tid_to_gt_group.get(tid)
@@ -109,7 +109,7 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                 gt_counts[gt_id]['count'] += 1
 
         if not gt_counts:
-            # 全是噪声
+            # all noise
             mis_match_other.add(pred)
             continue
 
@@ -117,28 +117,28 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
         target_gt = gt_counts[best_gt_id]['gt']
         target_gt_set = set(target_gt)
 
-        # 1) pred ⊂ gt：是真子集，漏匹配
+        # 1) pred is a subset of gt: a proper subset, a missed match
         if pred_set.issubset(target_gt_set):
-            # 已经排除了 == 的情况，所以这里一定是真子集
+            # the == case is already excluded, so this is definitely a proper subset
             miss_match.add(pred)
 
-        # 2) gt ⊂ pred：是真超集，包对了但带了杂质
+        # 2) gt is a subset of pred: a proper superset, correct but with impurities
         elif target_gt_set.issubset(pred_set):
             mis_match_superset.add(pred)
 
-        # 3) 其它
+        # 3) other
         else:
             mis_match_other.add(pred)
 
     with open(output_file, 'w', encoding='utf-8') as f:
-        # 1) 误匹配 - 其他
-        f.write("=== 误匹配 - 其他 (混合错误/噪声) ===\n")
-        f.write(f"共 {len(mis_match_other)} 组\n\n")
+        # 1) mis-match - other
+        f.write("=== Mis-match - other (mixed errors/noise) ===\n")
+        f.write(f"{len(mis_match_other)} groups in total\n\n")
         for tup in sorted(mis_match_other):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
-            f.write(f"预测分组: {names}\n")
+            f.write(f"Predicted group: {names}\n")
 
-            f.write("详细分析:\n")
+            f.write("Detailed analysis:\n")
             seen_gts = {}
             for tid in tup:
                 gt_group = tid_to_gt_group.get(tid)
@@ -148,20 +148,20 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                     if gt_id not in seen_gts:
                         gt_names = [tid_to_name.get(t, f"tid_{t}") for t in gt_group]
                         seen_gts[gt_id] = gt_names
-                    f.write(f"  - {entity_name} -> 属于GT组: {seen_gts[gt_id]}\n")
+                    f.write(f"  - {entity_name} -> belongs to GT group: {seen_gts[gt_id]}\n")
                 else:
-                    f.write(f"  - {entity_name} -> 不在标准答案中 (噪声)\n")
+                    f.write(f"  - {entity_name} -> not in the ground truth (noise)\n")
             f.write("\n")
         f.write("="*70 + "\n\n")
 
-        # 2) 误匹配 - 超集
-        f.write("=== 误匹配 - 包含所有正确但有杂质 (Superset) ===\n")
-        f.write(f"共 {len(mis_match_superset)} 组\n\n")
+        # 2) mis-match - superset
+        f.write("=== Mis-match - contains all correct items but has impurities (Superset) ===\n")
+        f.write(f"{len(mis_match_superset)} groups in total\n\n")
         for tup in sorted(mis_match_superset):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
-            f.write(f"预测分组 (超集): {names}\n")
+            f.write(f"Predicted group (superset): {names}\n")
 
-            # 找到对应的完整 GT 组
+            # find the corresponding complete GT group
             gt_counts = {}
             for tid in tup:
                 gt = tid_to_gt_group.get(tid)
@@ -174,50 +174,50 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                 best_gt_id = max(gt_counts, key=lambda k: gt_counts[k]['count'])
                 target_gt = gt_counts[best_gt_id]['gt']
                 gt_names = [tid_to_name.get(t, f"tid_{t}") for t in target_gt]
-                f.write(f"包含了完整GT组: {gt_names}\n")
+                f.write(f"Contains the complete GT group: {gt_names}\n")
 
-                # 多出来的部分
+                # the extra part
                 extra_tids = set(tup) - set(target_gt)
                 for tid in extra_tids:
                     entity_name = tid_to_name.get(tid, f"tid_{tid}")
                     gt_group = tid_to_gt_group.get(tid)
                     if gt_group:
                         gt_names = [tid_to_name.get(t, f"tid_{t}") for t in gt_group]
-                        f.write(f"  - 多余实体: {entity_name} (属于其他GT: {gt_names})\n")
+                        f.write(f"  - extra entity: {entity_name} (belongs to another GT: {gt_names})\n")
                     else:
-                        f.write(f"  - 多余实体: {entity_name} (噪声)\n")
+                        f.write(f"  - extra entity: {entity_name} (noise)\n")
             f.write("\n")
         f.write("="*70 + "\n\n")
 
-        # 3) 漏匹配
-        f.write("=== 漏匹配 (对但是缺/子集) ===\n")
-        f.write(f"共 {len(miss_match)} 组\n\n")
+        # 3) missed match
+        f.write("=== Missed match (correct but incomplete/subset) ===\n")
+        f.write(f"{len(miss_match)} groups in total\n\n")
         for tup in sorted(miss_match):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
-            f.write(f"预测分组 (子集): {names}\n")
+            f.write(f"Predicted group (subset): {names}\n")
 
-            # 取第一个 tid 反查 GT
+            # use the first tid to look up the GT
             first_tid = tup[0]
             gt_group = tid_to_gt_group.get(first_tid)
             if gt_group:
                 gt_names = [tid_to_name.get(t, f"tid_{t}") for t in gt_group]
                 missing_tids = set(gt_group) - set(tup)
                 missing_names = [tid_to_name.get(t, f"tid_{t}") for t in missing_tids]
-                f.write(f"完整GT组: {gt_names}\n")
-                f.write(f"缺失实体: {missing_names}\n")
+                f.write(f"Complete GT group: {gt_names}\n")
+                f.write(f"Missing entities: {missing_names}\n")
             f.write("\n")
         f.write("="*70 + "\n\n")
 
-        # 4) 正确
-        f.write("=== 正确匹配 ===\n")
-        f.write(f"共 {len(correct_match)} 组\n\n")
+        # 4) correct
+        f.write("=== Correct matches ===\n")
+        f.write(f"{len(correct_match)} groups in total\n\n")
         for tup in sorted(correct_match):
             names = [tid_to_name.get(tid, f"tid_{tid}") for tid in tup]
             f.write(f"{names}\n")
 
-    log(f"实体组分类详细信息已保存到: {output_file}")
+    log(f"Detailed entity-group classification saved to: {output_file}")
 
-    # 算 P / R / F1
+    # compute P / R / F1
     truth = len(correct_match)
     P = truth / len(prediction_set) if len(prediction_set) > 0 else 0
     R = truth / len(ground_truth_set) if len(ground_truth_set) > 0 else 0
@@ -227,7 +227,7 @@ def evaluate_f1_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
 
 def evaluate_log_with_output(ground_truth: List[Tuple], prediction: List[Tuple],
                               tid_to_name: dict, output_file: str):
-    """评估 + 把分组明细写到文件"""
+    """Evaluate + write the group details to a file"""
     log(f"num of ground truth: {len(ground_truth)}")
     log(f"num of prediction: {len(prediction)}")
 

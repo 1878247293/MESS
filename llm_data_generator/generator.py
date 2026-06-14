@@ -1,4 +1,4 @@
-"""Stage 3：批量调 LLM 生成 entity groups + variants。"""
+"""Stage 3: batch-call the LLM to generate entity groups + variants."""
 
 import json
 import random
@@ -8,60 +8,60 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .config import DatasetConfig
 
 
-GENERATE_SYSTEM_PROMPT = """你是一位合成数据生成专家，负责为实体匹配任务生成训练数据。
-你必须严格遵守数据集生成规范中指定的每张表的字段格式。
-请始终以 JSON 格式输出。
+GENERATE_SYSTEM_PROMPT = """You are an expert in synthetic data generation, responsible for producing training data for entity matching tasks.
+You must strictly follow the per-table field formats specified in the dataset generation specification.
+Always output in JSON format.
 
-## 绝对禁止（违反任何一条则该实体组作废）
+## Absolutely forbidden (violating any single rule invalidates the entity group)
 
-1. **禁止占位符/模板名称**：不允许出现 "Unknown Artist"、"Unknown Song"、"Unknown Title"、"Unknown" 等通用占位符。每个实体必须有具体的、有辨识度的名称。
-2. **禁止 null 字符串**：字段值不允许出现字面文本 "null"、"None"、"N/A"、"undefined"。如果某个字段按规范应该缺失，请使用空字符串 ""。
-3. **禁止重复**：每个实体组的核心名称必须与其他实体组完全不同。下方"已有实体名"列表中的名称绝对不能再次出现。
-4. **禁止混入不同实体**：同一个 entity group 内的所有 variants 必须是同一个实体（同一首歌/同一个人/同一件商品）的不同格式表示。绝对不允许将不同实体放入同一组。例如不允许把"钢琴曲"和"吉他曲"放在一组，不允许把"声卡"和"服装"放在一组。
-5. **非空约束**：任何表的一个实体中最多只能有 1 个空字段。
-6. **属性列一致性**：所有 variant 必须包含完全相同的属性列，缺失时用空字符串 ""，绝不允许某个 variant 多出或少了某个属性列。
-7. **表间格式差异（核心维度）**：请参考数据集生成规范中描述的差异分布规律——通常每个实体组会在部分列（约 2-3 列）上体现表间差异，其余列在不同表之间可以保持相同格式。差异类型通常包括：格式编码不同、信息嵌入方式不同、字段缺失策略不同等。请按照规范中描述的各列**可能的**差异类型来选择差异方式，不同实体组的差异列和差异方式尽量有所变化。
-8. **避免格式趋同**：如果生成的多个 variant 各字段内容几乎相同（仅有大小写区别），该实体组会被视为无效。每个 variant 相比 table_0 应在体现差异的列上有明显的内容层面差异（不只是大小写变化）。也请避免所有实体组在相同的列上使用相同的固定差异模式——不同实体组的差异方式尽量有所变化。
-9. **大小写差异**：同一实体的不同 variant 之间必须体现大小写的变化（如首字母大写 vs 全大写 vs 全小写 vs 混合大小写）。
-10. **语言一致性**：生成数据必须使用与数据集生成规范中指定的语言相同的语言，不允许自行切换语言。
-11. **虚构实体要求**：允许生成虚构实体，但名称、属性等必须符合现实世界的风格和常识，不允许出现明显不合理的内容（如虚幻的地名、不存在的商品类别、荒诞的人名等）。"""
+1. **No placeholder / template names**: Generic placeholders such as "Unknown Artist", "Unknown Song", "Unknown Title", "Unknown" are not allowed. Every entity must have a concrete, distinctive name.
+2. **No null strings**: Field values must not contain the literal text "null", "None", "N/A", or "undefined". If a field should be missing per the specification, use an empty string "".
+3. **No duplicates**: The core name of each entity group must be completely different from every other entity group. Names in the "existing entity names" list below must never appear again.
+4. **No mixing of different entities**: All variants within the same entity group must be different format representations of the SAME entity (the same song / the same person / the same product). Putting different entities into one group is strictly forbidden. For example, do not put a "piano piece" and a "guitar piece" in one group, and do not put a "sound card" and "clothing" in one group.
+5. **Non-empty constraint**: Any single entity in any table may have at most 1 empty field.
+6. **Attribute column consistency**: All variants must contain exactly the same attribute columns; use an empty string "" when a value is missing. No variant may have an extra or a missing attribute column.
+7. **Cross-table format differences (core dimension)**: Refer to the difference distribution pattern described in the dataset generation specification — typically each entity group exhibits cross-table differences on only some columns (about 2-3 columns), while the remaining columns may keep the same format across tables. Difference types usually include: different format encodings, different ways of embedding information, different field-omission strategies, etc. Choose difference methods according to the **possible** difference types described for each column in the specification, and try to vary the difference columns and methods across different entity groups.
+8. **Avoid format convergence**: If the generated variants have nearly identical field contents (differing only in case), the entity group will be considered invalid. Each variant should differ from table_0 at the content level on the columns that express differences (not merely a case change). Also avoid having all entity groups use the same fixed difference pattern on the same columns — vary the difference methods across entity groups.
+9. **Case differences**: Different variants of the same entity must exhibit case variation (e.g. Title Case vs ALL CAPS vs all lowercase vs MiXeD case).
+10. **Language consistency**: The generated data must use the same language as specified in the dataset generation specification; do not switch languages on your own.
+11. **Fictional entity requirement**: Fictional entities are allowed, but their names, attributes, etc. must conform to real-world style and common sense. Obviously unreasonable content is not allowed (e.g. fantastical place names, non-existent product categories, absurd person names)."""
 
 
-GENERATE_USER_TEMPLATE = """请为实体匹配数据集生成合成训练数据。
+GENERATE_USER_TEMPLATE = """Please generate synthetic training data for an entity matching dataset.
 
-## 数据集信息
-- 名称: {dataset_name}
-- 数据列: {columns}
-- 每个实体的文本格式: `{text_format}`
+## Dataset information
+- Name: {dataset_name}
+- Columns: {columns}
+- Text format of each entity: `{text_format}`
 
-## 数据集生成规范（必须严格遵守）
+## Dataset generation specification (must be strictly followed)
 
 {dataset_instructions}
 
-## 已有实体名（禁止重复，必须生成完全不同的新实体）
+## Existing entity names (duplicates forbidden; you must generate completely new, different entities)
 
 {existing_sample}
 
-## 多样性要求（极其重要）
+## Diversity requirement (extremely important)
 
-本批请围绕以下主题生成：**{diversity_hint}**
-- 每个实体的核心名称必须彼此不同，且不能与上方已有实体名重复
-- 涵盖不同的子类别/风格/地区，不要集中在同一个领域
+This batch should be generated around the following theme: **{diversity_hint}**
+- The core name of each entity must be distinct from one another and must not duplicate any existing entity name above
+- Cover different subcategories / styles / regions; do not concentrate on a single domain
 
-## 生成要求（必须严格执行）
+## Generation requirements (must be strictly enforced)
 
-1. 生成 {batch_size} 个实体组，每个实体核心名称各不相同
-2. 每个实体组包含 {num_variants} 个 variant，分别对应 table_0 到 table_{last_table_idx}
-3. **⚠️ 最重要 ⚠️ 同一个 entity group 的所有 variants 必须是【同一个实体】的不同表示方式（相同主体内容，不同格式/噪声/缺失风格）。例如：同一首歌的不同格式、同一个人的不同记录、同一件商品的不同描述。绝对不允许将不同实体放入同一组！**
-4. **每个表的字段必须严格按照上方生成规范中对该表的格式要求，包括ID格式、title格式、length单位、缺失字段等**
-5. **表间格式差异（核心维度）**：请参考上方生成规范中"表间差异模式"章节描述的各列可能的差异类型——通常每个实体组会在部分列（约 2-3 列）上体现差异，其余列在不同表之间可以保持相同格式。差异类型通常包括格式编码不同、信息嵌入方式不同、字段缺失策略不同等。不同实体组的差异列和差异方式尽量有所变化，请避免所有实体组在相同列上使用相同的固定差异模式
-6. **缺失字段用空字符串 ""**，绝对不允许出现字面 "null"、"None"、"N/A"
-7. **非空约束：任何表的一个实体中最多只能有 1 个空字段**
-8. **属性列一致性：所有 variant 必须包含完全相同的属性列，缺失时用空字符串 ""，绝不允许某个 variant 多出或少了某个属性列**
-9. **语言一致性：生成数据必须使用与上方数据集生成规范中采样数据相同的语言，不允许自行切换语言（如规范中是印尼语则生成印尼语，是英文则生成英文）**
-10. **差异分布说明**：请参考数据集生成规范中描述的差异分布规律——通常每个实体组会在约 2-3 个列上体现实质性的内容层面差异（格式编码不同、信息嵌入方式不同、字段缺失策略不同），其余列在不同表之间可以保持相同格式。不同实体组的差异列和差异方式尽量有所变化，避免所有实体组使用完全相同的差异模式。
+1. Generate {batch_size} entity groups, each with a distinct core name
+2. Each entity group contains {num_variants} variants, corresponding to table_0 through table_{last_table_idx}
+3. **⚠️ MOST IMPORTANT ⚠️ All variants of the same entity group must be different representations of THE SAME entity (same underlying content, different format / noise / omission style). For example: different formats of the same song, different records of the same person, different descriptions of the same product. Putting different entities into one group is strictly forbidden!**
+4. **The fields of each table must strictly follow the format requirements for that table in the generation specification above, including ID format, title format, length units, missing fields, etc.**
+5. **Cross-table format differences (core dimension)**: Refer to the difference types described for each column in the "cross-table difference patterns" section of the specification above — typically each entity group exhibits differences on only some columns (about 2-3 columns), while the remaining columns may keep the same format across tables. Difference types usually include different format encodings, different ways of embedding information, different field-omission strategies, etc. Try to vary the difference columns and methods across entity groups, and avoid having all entity groups use the same fixed difference pattern on the same columns
+6. **Use an empty string "" for missing fields**; the literals "null", "None", "N/A" are strictly forbidden
+7. **Non-empty constraint: any single entity in any table may have at most 1 empty field**
+8. **Attribute column consistency: all variants must contain exactly the same attribute columns; use an empty string "" when missing. No variant may have an extra or a missing attribute column**
+9. **Language consistency: the generated data must use the same language as the sampled data in the dataset generation specification above; do not switch languages on your own (e.g. if the specification is in Indonesian, generate Indonesian; if in English, generate English)**
+10. **Difference distribution note**: Refer to the difference distribution pattern described in the dataset generation specification — typically each entity group exhibits substantive content-level differences on about 2-3 columns (different format encodings, different ways of embedding information, different field-omission strategies), while the remaining columns may keep the same format across tables. Try to vary the difference columns and methods across entity groups, and avoid having all entity groups use exactly the same difference pattern.
 
-请返回如下 JSON 格式：
+Please return JSON in the following format:
 {{
     "entities": [
         {{
@@ -75,10 +75,10 @@ GENERATE_USER_TEMPLATE = """请为实体匹配数据集生成合成训练数据�
 }}"""
 
 
-# 多样性提示词池：每批轮一个，让 LLM 别老盯着同一类实体
+# Diversity hint pool: rotate one per batch so the LLM doesn't fixate on the same kind of entity
 DIVERSITY_HINTS = [
-    "尽量多样化，覆盖不同类别和风格",
-    "与之前的实体尽量不同，探索新的子领域",
+    "Be as diverse as possible, covering different categories and styles",
+    "Differ as much as possible from previous entities, exploring new subdomains",
 ]
 
 
@@ -87,14 +87,14 @@ def _get_dataset_instructions(analysis: dict) -> str:
 
 
 def _build_example_fields(config: DatasetConfig) -> tuple:
-    """根据 config 拼 prompt 里要塞进去的字段示例"""
+    """Build the field examples to inject into the prompt, based on config"""
     # canonical
     canonical_parts = []
     for field_name in config.canonical_fields:
         canonical_parts.append(f'"{field_name}": "..."')
     canonical_example = ",\n            ".join(canonical_parts) + ","
 
-    # 组级额外字段
+    # group-level extra fields
     extra_parts = []
     for f in config.group_extra_fields:
         extra_parts.append(f'"{f}": "..."')
@@ -121,10 +121,10 @@ def generate_entity_groups(client, config: DatasetConfig,
                            existing_names: set = None,
                            max_workers: int = 4) -> list:
     """
-    分批跑 LLM 出 entity groups，多线程并发。
-    用 lock 保护 existing_names 和 all_groups，去重在写回时做。
+    Run the LLM in batches to produce entity groups, concurrently across threads.
+    A lock protects existing_names and all_groups; deduplication is done on write-back.
     """
-    print(f"Stage 3: 生成 {num_groups} 个 entity groups "
+    print(f"Stage 3: generating {num_groups} entity groups "
           f"(batch={batch_size}, workers={max_workers})...")
 
     existing = existing_names or set()
@@ -149,7 +149,7 @@ def generate_entity_groups(client, config: DatasetConfig,
 
     while len(all_groups) < num_groups:
         if consecutive_failures >= max_consecutive_failures:
-            print(f"  连续 {consecutive_failures} 批没产出新实体，提前停")
+            print(f"  {consecutive_failures} consecutive batches produced no new entities; stopping early")
             break
 
         remaining = num_groups - len(all_groups)
@@ -157,9 +157,9 @@ def generate_entity_groups(client, config: DatasetConfig,
         batch_ids = list(range(batch_idx, batch_idx + n_concurrent))
         batch_idx += n_concurrent
 
-        print(f"  并发 {n_concurrent} 批 "
+        print(f"  {n_concurrent} concurrent batches "
               f"(batch {batch_ids[0]}-{batch_ids[-1]}, "
-              f"已有 {len(all_groups)}/{num_groups})...")
+              f"have {len(all_groups)}/{num_groups})...")
 
         round_accepted = 0
         with ThreadPoolExecutor(max_workers=n_concurrent) as executor:
@@ -167,7 +167,7 @@ def generate_entity_groups(client, config: DatasetConfig,
             for future in as_completed(futures):
                 bid, batch, hint, error = future.result()
                 if error:
-                    print(f"    batch {bid} 失败: {error}")
+                    print(f"    batch {bid} failed: {error}")
                     continue
 
                 with lock:
@@ -178,7 +178,7 @@ def generate_entity_groups(client, config: DatasetConfig,
                             deduped.append(group)
                             existing.add(name_key)
                         else:
-                            print(f"    去重: 丢掉 '{name_key}'")
+                            print(f"    dedup: dropping '{name_key}'")
 
                     for group in deduped:
                         if len(all_groups) >= num_groups:
@@ -191,25 +191,25 @@ def generate_entity_groups(client, config: DatasetConfig,
                     round_accepted += accepted
 
                 if accepted < total:
-                    print(f"    batch {bid}: 去重后 {accepted}/{total} 通过")
+                    print(f"    batch {bid}: {accepted}/{total} passed after dedup")
                 elif accepted > 0:
-                    print(f"    batch {bid}: {accepted} 通过")
+                    print(f"    batch {bid}: {accepted} passed")
 
         if round_accepted > 0:
             consecutive_failures = 0
         else:
             consecutive_failures += n_concurrent
 
-    print(f"  共 {len(all_groups)} 个 entity groups")
+    print(f"  {len(all_groups)} entity groups total")
     return all_groups
 
 
 def _get_canonical_key(group: dict, config: DatasetConfig) -> str:
-    """canonical 字段拼起来当去重 key，括号内容剥掉"""
+    """Join the canonical fields into a dedup key, stripping parenthesized content"""
     parts = []
     for field_name in config.canonical_fields:
         val = group.get(field_name, "").strip().lower()
-        # 例：Cairo (Egypt) -> cairo
+        # e.g. Cairo (Egypt) -> cairo
         import re
         val_clean = re.sub(r'\s*\(.*?\)\s*', '', val).strip()
         parts.append(val_clean)
@@ -222,15 +222,15 @@ def _generate_batch(client, config: DatasetConfig,
     dataset_instructions = _get_dataset_instructions(analysis)
     canonical_example, extra_example, variant_example = _build_example_fields(config)
 
-    # 已有实体名最多塞 50 个进 prompt，让 LLM 知道哪些不能再生
+    # inject at most 50 existing entity names into the prompt so the LLM knows which not to regenerate
     if existing_names:
         sample_size = min(50, len(existing_names))
         sampled = random.sample(sorted(existing_names), sample_size)
         existing_sample = ", ".join(sampled)
         if len(existing_names) > sample_size:
-            existing_sample += f"\n...等共 {len(existing_names)} 个已有实体"
+            existing_sample += f"\n...and {len(existing_names)} existing entities in total"
     else:
-        existing_sample = "（暂无，第一批）"
+        existing_sample = "(none yet, first batch)"
 
     user_prompt = GENERATE_USER_TEMPLATE.format(
         dataset_name=config.name,
@@ -256,7 +256,7 @@ def _generate_batch(client, config: DatasetConfig,
 
     entities = result.get("entities", [])
     if not entities:
-        print(f"    LLM 返回空 entities")
+        print(f"    LLM returned empty entities")
         return []
 
     valid_groups = []
@@ -266,30 +266,30 @@ def _generate_batch(client, config: DatasetConfig,
             valid_groups.append(group)
 
     if len(valid_groups) < len(entities):
-        print(f"    校验: {len(valid_groups)}/{len(entities)} 通过")
+        print(f"    validation: {len(valid_groups)}/{len(entities)} passed")
 
     return valid_groups
 
 
-# 黑名单：canonical 全等于其中之一的直接丢
+# denylist: drop a group whose canonical exactly equals one of these
 _PLACEHOLDER_NAMES = {
-    # 通用
+    # generic
     "unknown", "n/a", "none", "null", "test", "example", "sample",
 }
 
-# canonical 含其中之一的子串也丢
+# also drop if the canonical contains one of these substrings
 _PLACEHOLDER_SUBSTRINGS = [
-    "shopeeitem", "shopeeoriginal", "虚构",
-    "fictional", "fictitious", "未知",
+    "shopeeitem", "shopeeoriginal",
+    "fictional", "fictitious",
 ]
 
 
 def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
     """
-    校验 + 规范化单个 entity group。
-    通不过返回 None，主调把它丢掉。
+    Validate + normalize a single entity group.
+    Returns None if it fails validation, and the caller drops it.
     """
-    # canonical 字段：缺失就从第一个 variant 推一下
+    # canonical fields: if missing, infer from the first variant
     group = {}
     for field_name in config.canonical_fields:
         val = entity.get(field_name, "")
@@ -300,7 +300,7 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
                 val = variants[0][source_col]
         group[field_name] = str(val) if val else ""
 
-    # 占位符筛掉
+    # filter out placeholders
     for field_name in config.canonical_fields:
         val = group.get(field_name, "").strip().lower()
         if val in _PLACEHOLDER_NAMES:
@@ -309,7 +309,7 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
             if sub in val:
                 return None
 
-    # 组级额外字段
+    # group-level extra fields
     for f in config.group_extra_fields:
         group[f] = entity.get(f, "")
 
@@ -320,7 +320,7 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
 
     valid_variants = []
     for v in variants:
-        # 至少有一个 text_field
+        # must have at least one text_field
         has_required = any(f in v for f in config.text_fields)
         if has_required:
             clean_v = {}
@@ -330,12 +330,12 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
                 clean_v["style"] = f"table_{len(valid_variants)}"
             for f in config.text_fields:
                 raw = v.get(f)
-                # null / None / N/A 之类的字面量统一成空串
+                # normalize literals like null / None / N/A to an empty string
                 if raw is None or str(raw).strip().lower() in ("null", "none", "n/a"):
                     clean_v[f] = ""
                 else:
                     clean_v[f] = str(raw)
-            # 空字段超过 2 个就丢
+            # drop if more than 2 empty fields
             empty_count = sum(1 for f in config.text_fields if not clean_v.get(f, "").strip())
             if empty_count > 2:
                 continue
@@ -344,7 +344,7 @@ def _validate_entity(entity: dict, config: DatasetConfig) -> dict:
     if not valid_variants:
         return None
 
-    # variant 数量必须刚好等于表数量
+    # the number of variants must exactly equal the number of tables
     expected = config.default_variants
     if len(valid_variants) != expected:
         return None

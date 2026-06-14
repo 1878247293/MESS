@@ -1,6 +1,6 @@
 """
-按数据集存的最优超参。
-main.py 启动时根据 data_name 自动套，命令行显式给的参数不会被覆盖。
+Best hyperparameters stored per dataset.
+main.py applies them automatically by data_name at startup; parameters explicitly given on the command line are not overridden.
 """
 
 from dataclasses import dataclass
@@ -9,19 +9,19 @@ from typing import Dict
 
 @dataclass
 class DatasetConfig:
-    # 属性选择
+    # attribute selection
     eer_flag: bool = True
     col_sim_threshold: float = 0.8
     selection_rate: float = 0.2
 
-    # 合并
+    # merging
     k: int = 1
     min_dis: float = 0.5
 
-    # 剪枝
+    # pruning
     eps: float = 1.0
 
-    # 对比学习
+    # contrastive learning
     use_contrastive_learning: bool = False
     cl_epochs: int = 10
     cl_batch_size: int = 64
@@ -29,7 +29,7 @@ class DatasetConfig:
     cl_learning_rate: float = 1e-5
     cl_sample_rate: float = 1.0
 
-    # 留个备注 + 当时的 F1
+    # a note + the F1 at that time
     description: str = ""
     f1_score: float = 0.0
     search_date: str = ""
@@ -38,7 +38,7 @@ class DatasetConfig:
 # Geo
 GEO_CONFIG = DatasetConfig(
     eer_flag=True,
-    col_sim_threshold=0.8,  # 这个最敏感，从 0.9 调到 0.8 才对
+    col_sim_threshold=0.8,  # the most sensitive one; had to drop from 0.9 to 0.8
     selection_rate=0.2,
     k=1,
     min_dis=0.7,
@@ -51,7 +51,7 @@ GEO_CONFIG = DatasetConfig(
     search_date="2025-11-11"
 )
 
-# Geo + 对比学习
+# Geo + contrastive learning
 GEO_CL_CONFIG = DatasetConfig(
     eer_flag=True,
     col_sim_threshold=0.8,
@@ -72,7 +72,7 @@ GEO_CL_CONFIG = DatasetConfig(
     search_date="2025-11-11"
 )
 
-# Geo + 难负样本
+# Geo + hard negatives
 GEO_HARD_NEG_CONFIG = DatasetConfig(
     eer_flag=True,
     col_sim_threshold=0.8,
@@ -96,10 +96,10 @@ GEO_HARD_NEG_CONFIG = DatasetConfig(
 # Music-20
 MUSIC20_CONFIG = DatasetConfig(
     eer_flag=True,
-    col_sim_threshold=0.9,  # 和 Geo 不一样，Music 上 0.9 才好
+    col_sim_threshold=0.9,  # different from Geo; 0.9 works better on Music
     selection_rate=0.2,
     k=1,
-    min_dis=0.35,  # 比 Geo 更紧
+    min_dis=0.35,  # tighter than Geo
     eps=0.8,
 
     use_contrastive_learning=False,
@@ -118,7 +118,7 @@ MUSIC20_CONFIG_CL = DatasetConfig(
     min_dis=0.35,
     eps=0.8,
 
-    # 加 CL 大约 +3pt
+    # adding CL gives about +3pt
     use_contrastive_learning=True,
     cl_epochs=10,
     cl_batch_size=64,
@@ -135,10 +135,10 @@ MUSIC20_CONFIG_CL = DatasetConfig(
 MUSIC200_CONFIG = DatasetConfig(
     eer_flag=True,
     col_sim_threshold=0.9,
-    selection_rate=0.2,     # 注意：是 0.2 不是 0.1，0.1 会偏
+    selection_rate=0.2,     # note: it is 0.2, not 0.1; 0.1 drifts
     k=1,
     min_dis=0.35,
-    eps=0.8,                # 比 1.0 紧一点
+    eps=0.8,                # a bit tighter than 1.0
 
     use_contrastive_learning=False,
 
@@ -147,9 +147,9 @@ MUSIC200_CONFIG = DatasetConfig(
     search_date="2025-11-12"
 )
 
-# Music-2000：还没正式调
+# Music-2000: not formally tuned yet
 MUSIC2000_CONFIG = DatasetConfig(
-    # 暂用 Music-200 的参数
+    # temporarily using Music-200 parameters
     eer_flag=True,
     col_sim_threshold=0.8,
     selection_rate=0.2,
@@ -158,11 +158,11 @@ MUSIC2000_CONFIG = DatasetConfig(
     eps=0.8,
 
     use_contrastive_learning=False,
-    cl_sample_rate=0.3,  # 数据量太大，CL 这边采点样
+    cl_sample_rate=0.3,  # dataset is too large, so subsample for CL
 
     description="Music-2000 (placeholder)",
     f1_score=0.0,
-    search_date="待定"
+    search_date="TBD"
 )
 
 # Shopee
@@ -209,30 +209,30 @@ def get_dataset_config(dataset_name: str) -> DatasetConfig:
     if dataset_name not in DATASET_CONFIGS:
         available = ", ".join(sorted(set(DATASET_CONFIGS.keys())))
         raise KeyError(
-            f"未找到数据集 '{dataset_name}' 的配置。\n"
-            f"可用的: {available}\n"
-            f"如果是新数据集，请先在 dataset_configs.py 里加一个。"
+            f"No configuration found for dataset '{dataset_name}'.\n"
+            f"Available: {available}\n"
+            f"If this is a new dataset, please add one in dataset_configs.py first."
         )
 
     config = DATASET_CONFIGS[dataset_name]
-    print(f"加载数据集配置: {dataset_name}")
+    print(f"Loading dataset config: {dataset_name}")
     print(f"  desc: {config.description}")
     if config.f1_score > 0:
-        print(f"  历史最佳 F1: {config.f1_score:.2f}%")
-    if config.search_date != "待定":
-        print(f"  日期: {config.search_date}")
+        print(f"  best historical F1: {config.f1_score:.2f}%")
+    if config.search_date != "TBD":
+        print(f"  date: {config.search_date}")
 
     return config
 
 
 def list_all_configs():
     print("\n" + "="*60)
-    print("可用的数据集配置:")
+    print("Available dataset configs:")
     print("="*60)
 
     seen = {}
     for name, config in DATASET_CONFIGS.items():
-        # 同一对象会被多个 key 指（比如大小写），去重
+        # the same object can be referenced by multiple keys (e.g. different case); dedup
         config_id = id(config)
         if config_id in seen:
             continue

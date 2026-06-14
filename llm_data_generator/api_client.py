@@ -1,6 +1,6 @@
-"""OpenAI 兼容 API 客户端（支持 API Key 认证），适用于各类云端 LLM 服务。
+"""OpenAI-compatible API client (supports API-key authentication), for various cloud LLM services.
 
-兼容：OpenAI、DeepSeek、阿里通义千问、硅基流动、智谱等 OpenAI 兼容接口。
+Compatible with: OpenAI, DeepSeek, Alibaba Tongyi Qianwen, SiliconFlow, Zhipu, and other OpenAI-compatible interfaces.
 """
 
 import json
@@ -31,14 +31,15 @@ class ApiClient:
 
     def chat(self, messages: list, temperature: float = None,
              force_json: bool = True, stream: bool = True) -> str:
-        """发送聊天请求,返回助手回复文本。
+        """Send a chat request and return the assistant's reply text.
 
-        默认走 **流式**(stream=True):SSE 分片持续写入数据,保持 TCP 连接活跃,
-        规避中转 / 网关的 idle 超时 (表现为 HTTP 499)。长 reasoning 模型
-        (gpt-5.x / o-series) 强烈建议保持流式。
+        Defaults to **streaming** (stream=True): SSE fragments write data continuously, keeping
+        the TCP connection alive and avoiding idle timeouts of proxies / gateways (which show up as HTTP 499).
+        Streaming is strongly recommended for long-reasoning models (gpt-5.x / o-series).
 
-        stream=False 时走旧的非流式路径,并保留 "content 为空时自动回退流式"
-        的兼容行为,用于确实需要一次性拿到完整响应的短请求。
+        When stream=False, it takes the old non-streaming path and keeps the "fall back to streaming
+        automatically when content is empty" compatibility behavior, for short requests that genuinely need
+        the full response in one shot.
         """
         temp = temperature if temperature is not None else self.temperature
         payload = {
@@ -53,7 +54,7 @@ class ApiClient:
         if stream:
             return self._chat_stream_with_retry(payload)
 
-        # ---- stream=False:非流式 ----
+        # ---- stream=False: non-streaming ----
         for attempt in range(self.max_retries):
             resp = None
             try:
@@ -69,7 +70,7 @@ class ApiClient:
                 except (ValueError, requests.exceptions.JSONDecodeError):
                     return self._chat_stream(payload)
                 if "error" in data:
-                    raise RuntimeError(f"API 返回错误: {data['error']}")
+                    raise RuntimeError(f"API returned an error: {data['error']}")
                 content = data["choices"][0]["message"]["content"] or ""
                 if self.token_tracker and "usage" in data:
                     u = data["usage"]
@@ -85,58 +86,59 @@ class ApiClient:
             except (requests.ConnectionError, requests.Timeout) as e:
                 if attempt < self.max_retries - 1:
                     wait = 2 ** attempt
-                    print(f"  连接失败,{wait}s 后重试: {e}")
+                    print(f"  connection failed, retrying in {wait}s: {e}")
                     time.sleep(wait)
                 else:
-                    raise RuntimeError(f"API 连接失败 ({self.max_retries} 次重试后): {e}")
+                    raise RuntimeError(f"API connection failed (after {self.max_retries} retries): {e}")
             except requests.HTTPError as e:
                 error_body = resp.text[:500] if resp is not None else ""
                 status = resp.status_code if resp is not None else 0
                 if status in (429, 500, 502, 503, 504):
                     if attempt < self.max_retries - 1:
                         wait = 2 ** (attempt + 1)
-                        print(f"  服务器错误 ({status}),{wait}s 后重试...")
+                        print(f"  server error ({status}), retrying in {wait}s...")
                         time.sleep(wait)
                         continue
-                raise RuntimeError(f"API HTTP 错误: {e}\n响应: {error_body}")
+                raise RuntimeError(f"API HTTP error: {e}\nresponse: {error_body}")
 
     def _chat_stream_with_retry(self, payload: dict) -> str:
-        """流式 chat,带退避重试。触发 499 / 连接断开时自动再来。"""
+        """Streaming chat with backoff retry. Automatically retries on 499 / dropped connection."""
         for attempt in range(self.max_retries):
             try:
                 return self._chat_stream(payload)
             except (requests.ConnectionError, requests.Timeout) as e:
                 if attempt < self.max_retries - 1:
                     wait = 2 ** attempt
-                    print(f"  流式连接失败,{wait}s 后重试: {e}")
+                    print(f"  streaming connection failed, retrying in {wait}s: {e}")
                     time.sleep(wait)
                 else:
-                    raise RuntimeError(f"API 连接失败 ({self.max_retries} 次重试后): {e}")
+                    raise RuntimeError(f"API connection failed (after {self.max_retries} retries): {e}")
             except requests.HTTPError as e:
                 resp = getattr(e, "response", None)
                 status = resp.status_code if resp is not None else 0
                 body = resp.text[:500] if resp is not None else ""
-                # 499 / 408 / 429 / 5xx 都视为可重试
+                # 499 / 408 / 429 / 5xx are all treated as retryable
                 if status in (408, 429, 499, 500, 502, 503, 504):
                     if attempt < self.max_retries - 1:
                         wait = 2 ** (attempt + 1)
-                        print(f"  上游瞬时错误 ({status}),{wait}s 后重试...")
+                        print(f"  upstream transient error ({status}), retrying in {wait}s...")
                         time.sleep(wait)
                         continue
-                raise RuntimeError(f"API HTTP 错误: {e}\n响应: {body}")
-        raise RuntimeError("流式请求重试全部失败")
+                raise RuntimeError(f"API HTTP error: {e}\nresponse: {body}")
+        raise RuntimeError("all streaming-request retries failed")
 
     def _chat_stream(self, payload: dict) -> str:
-        """流式接收响应内容。
+        """Receive the response content via streaming.
 
-        - 自动附加 stream_options.include_usage,确保最后一个 chunk 带 usage。
-        - 连接超时与读超时拆分:连接 30s 即可;读端给足 self.timeout,
-          但因为每个 SSE 分片都刷新 socket 读计时,不会卡死。
+        - Automatically appends stream_options.include_usage to ensure the last chunk carries usage.
+        - Connection timeout and read timeout are split: 30s is enough for connecting; the read side
+          is given the full self.timeout, but since each SSE fragment refreshes the socket read timer,
+          it will not hang.
         """
         payload = {
             **payload,
             "stream": True,
-            # OpenAI 规范:include_usage=true 时,在最后一个 (choices=[]) chunk 返回 usage
+            # OpenAI spec: when include_usage=true, usage is returned in the last (choices=[]) chunk
             "stream_options": {"include_usage": True},
         }
         resp = requests.post(
@@ -165,7 +167,7 @@ class ApiClient:
             except json.JSONDecodeError:
                 continue
 
-            # usage 通常出现在最后一个 chunk(choices 为空)
+            # usage usually appears in the last chunk (choices empty)
             if self.token_tracker and chunk.get("usage"):
                 u = chunk["usage"]
                 self.token_tracker.record(
@@ -185,14 +187,14 @@ class ApiClient:
                 chunks.append(piece)
 
         if not usage_seen and self.token_tracker:
-            # 某些中转不遵循 stream_options,仅在非流式或 header 返回 usage
-            # 这里不再强求,后续可从 response.headers 里捞 openai-* 计费头
+            # some proxies do not honor stream_options and only return usage in non-streaming mode or headers
+            # we no longer insist here; later we could pull openai-* billing headers from response.headers
             pass
 
         return "".join(chunks)
 
     def chat_json(self, messages: list, temperature: float = None) -> dict:
-        """发送聊天请求，解析 JSON 响应（带容错重试）。"""
+        """Send a chat request and parse the JSON response (with fault-tolerant retries)."""
         current_messages = list(messages)
 
         for attempt in range(self.max_retries):
@@ -201,17 +203,17 @@ class ApiClient:
             if result is not None:
                 return result
 
-            print(f"  JSON 解析失败 (尝试 {attempt + 1}/{self.max_retries})，重试中...")
+            print(f"  JSON parsing failed (attempt {attempt + 1}/{self.max_retries}), retrying...")
             current_messages = list(messages) + [
                 {"role": "assistant", "content": text},
-                {"role": "user", "content": "你的回答不是有效 JSON。请只返回纯 JSON，不要任何额外文字或 markdown 代码块标记。"},
+                {"role": "user", "content": "Your reply was not valid JSON. Return pure JSON only, with no extra text or markdown code-block markers."},
             ]
 
-        raise RuntimeError(f"JSON 解析失败 ({self.max_retries} 次重试后)。最后的响应:\n{text[:500]}")
+        raise RuntimeError(f"JSON parsing failed (after {self.max_retries} retries). Last response:\n{text[:500]}")
 
     @staticmethod
     def _try_parse_json(text: str):
-        """尝试从文本中提取 JSON，返回 dict 或 None。"""
+        """Try to extract JSON from the text, returning a dict or None."""
         cleaned = ApiClient._repair_json(text)
 
         for candidate in [cleaned, text]:
@@ -265,12 +267,12 @@ class ApiClient:
 
     @staticmethod
     def _repair_json(text: str) -> str:
-        """修复常见的 LLM JSON 错误。"""
+        """Repair common LLM JSON errors."""
         text = re.sub(r',\s*""(?!\s*:)', '', text)
         return text
 
     def check_connection(self) -> bool:
-        """检查 API 服务是否可用。"""
+        """Check whether the API service is available."""
         try:
             resp = requests.get(
                 f"{self.base_url}/v1/models",
@@ -282,7 +284,7 @@ class ApiClient:
             return False
 
     def list_models(self) -> list:
-        """列出可用模型。"""
+        """List available models."""
         try:
             resp = requests.get(
                 f"{self.base_url}/v1/models",

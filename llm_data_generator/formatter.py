@@ -1,4 +1,4 @@
-"""把 entity groups 拍成正样本对，写到 labeled_pairs.json。"""
+"""Flatten entity groups into positive pairs and write them to labeled_pairs.json."""
 
 import json
 import random
@@ -10,9 +10,9 @@ from .config import DatasetConfig
 
 
 def format_record_text(record: dict, config: DatasetConfig) -> str:
-    """单个 variant -> 拼成一行文本
+    """A single variant -> assembled into one line of text
 
-    例：Geo 的 "name: Brno (Czech Republic), longtitude: 16.608, latitude: 49.195"
+    e.g. for Geo: "name: Brno (Czech Republic), longtitude: 16.608, latitude: 49.195"
     """
     parts = []
     for field in config.text_fields:
@@ -24,7 +24,7 @@ def format_record_text(record: dict, config: DatasetConfig) -> str:
 
 
 def build_positive_pairs(entity_groups: list, config: DatasetConfig) -> list:
-    """组内任两个 variant 配成一对"""
+    """Pair up any two variants within a group"""
     pairs = []
     for group in entity_groups:
         variants = group.get("variants", [])
@@ -36,7 +36,7 @@ def build_positive_pairs(entity_groups: list, config: DatasetConfig) -> list:
 
 def build_pairs(entity_groups: list, config: DatasetConfig,
                 seed: int = 42) -> tuple:
-    """只产正样本，负样本交给 in-batch negatives"""
+    """Produce positive samples only; negatives are left to in-batch negatives"""
     positive_pairs = build_positive_pairs(entity_groups, config)
     num_positive = len(positive_pairs)
 
@@ -49,7 +49,7 @@ def build_pairs(entity_groups: list, config: DatasetConfig,
     metadata = {
         "dataset": config.name,
         "method": "llm_generated",
-        "description": f"LLM 生成的正样本对，负样本走 in-batch negatives。{config.description}",
+        "description": f"LLM-generated positive pairs; negatives use in-batch negatives. {config.description}",
         "num_entity_groups": len(entity_groups),
         "variants_per_entity": round(avg_variants),
         "num_pairs": num_positive,

@@ -1,3 +1,3 @@
-"""LLM 驱动的实体匹配训练数据生成器。"""
+"""LLM-driven entity matching training data generator."""
 
 __version__ = "1.0.0"

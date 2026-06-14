@@ -1,15 +1,16 @@
 """
-分层两两合并。
+Hierarchical pairwise merging.
 
-N 张表 → N/2 → N/4 → … → 1。每一层挑配对方式（随机 / 智能配对）和执行方式
-（串行 / joblib 并行），4 个组合各暴露一个入口函数：
-- `merge` —— 串行 + 随机
-- `merge_parallel` —— 并行 + 随机
-- `merge_with_smart_pairing` —— 串行 + SmartTablePairing
-- `merge_parallel_with_smart_pairing` —— 并行 + SmartTablePairing
+N tables -> N/2 -> N/4 -> ... -> 1. Each level picks a pairing method (random / smart pairing) and an
+execution method (serial / joblib parallel); the 4 combinations each expose an entry function:
+- `merge` -- serial + random
+- `merge_parallel` -- parallel + random
+- `merge_with_smart_pairing` -- serial + SmartTablePairing
+- `merge_parallel_with_smart_pairing` -- parallel + SmartTablePairing
 
-核心是 `merge_ij(table_i, table_j, ...)`：双向 mutual KNN 找匹配 tuple 对
-（HNSW + 双向交集），距离 ≤ args.min_dis 的留下来，匹配上的 tuple 合并，剩下的延续 tuple_id。
+The core is `merge_ij(table_i, table_j, ...)`: bidirectional mutual KNN to find matching tuple pairs
+(HNSW + bidirectional intersection); pairs with distance <= args.min_dis are kept, matched tuples are
+merged, and the rest carry over their tuple_id.
 """
 
 from typing import List
@@ -33,7 +34,7 @@ from utils import knn_search, shuffle
 from smart_table_pairing import SmartTablePairing
 
 
-def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):#资源监控
+def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):  # resource monitoring
     stage = update_stage_metrics(args, stage_name, usage)
     ram_text = format_bytes(stage["peak_memory_bytes"])
     gpu_text = format_bytes(stage["peak_gpu_memory_bytes"])
@@ -49,7 +50,7 @@ def _record_stage_usage(args: MainArgs, stage_name: str, usage, detail: str):#�
     )
 
 
-def get_table_embeddings(table: Table, all_embeddings: np.array):#表内 embedding 聚合
+def get_table_embeddings(table: Table, all_embeddings: np.array):  # aggregate embeddings within a table
     embeddings = all_embeddings[table.tids]
     df = pd.DataFrame(embeddings)
     df["group"] = table.tuple_ids
@@ -79,7 +80,7 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
     log(f"  get embeddings: {tm}")
     timer.start()
 
-    # 双向搜，取交集
+    # search in both directions and take the intersection
     pairs_ij = search_ij(embeddings_i, embeddings_j,
                          args.k, args.seed, args.min_dis)
     pairs_ji = search_ij(embeddings_j, embeddings_i,
@@ -91,24 +92,25 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
     size_j = int(embeddings_j.shape[0])
 
     tm_search = timer.stop()
-    log(f"  ann search: {tm_search}, 匹配对数: {len(pairs)}")
+    log(f"  ann search: {tm_search}, number of matched pairs: {len(pairs)}")
 
-    # 取前 5 个匹配对存为 example，方便回溯
+    # keep the first 5 matched pairs as examples for traceability
     merge_examples = []
     if len(pairs) > 0:
         pairs_list = list(pairs)[:5]
         for (i, j) in pairs_list:
-            merge_examples.append((i, j, None))  # 距离没保留
+            merge_examples.append((i, j, None))  # distance not retained
 
     result_logger = getattr(args, 'result_logger', None)
     if result_logger is not None:
         result_logger.log_merge(idx_i, idx_j, len(pairs), tm_search, merge_examples=merge_examples)
     timer.start()
 
-    # 构合并表
-    # 一次只合两张，结点是 tuple；连通分量最多两个，所以集合操作够了，没必要走 union-find
+    # build the merged table
+    # only two tables are merged at a time, with tuples as nodes; there are at most two connected
+    # components, so set operations suffice and union-find is unnecessary
 
-    # 准备 tuple_id -> [tids] 的映射
+    # prepare the tuple_id -> [tids] mapping
     df_i = pd.DataFrame(table_i.tids)
     df_i["group"] = table_i.tuple_ids
     gi = df_i.groupby('group')[0].apply(list).to_dict()
@@ -122,7 +124,7 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
     matched_i = set()
     matched_j = set()
 
-    # 1) 匹配上的 tuple 对
+    # 1) matched tuple pairs
     for (i, j) in pairs:
         new_tuple = gi[i] + gj[j]
         assert len(new_tuple) > 0
@@ -132,7 +134,7 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
         matched_i.add(i)
         matched_j.add(j)
 
-    # 2) 表 i 没匹配上的
+    # 2) unmatched tuples from table i
     for i in range(size_i):
         if i not in matched_i:
             new_tuple = gi[i]
@@ -141,7 +143,7 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
             new_tuple_ids.extend([new_tuple_cnt] * len(new_tuple))
             new_tuple_cnt += 1
 
-    # 3) 表 j 没匹配上的
+    # 3) unmatched tuples from table j
     for j in range(size_j):
         if j not in matched_j:
             new_tuple = gj[j]
@@ -156,13 +158,13 @@ def merge_ij(table_i: Table, table_j: Table, all_embeddings: np.array, args: Mai
 
 
 def merge(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
-    """层次化合并所有表，串行版本，老的随机配对"""
+    """Hierarchically merge all tables, serial version, the old random pairing"""
     cur_tables = [deepcopy(table) for table in tables]
     result_logger = getattr(args, 'result_logger', None)
     hierarchy_level = 1
 
     while len(cur_tables) > 1:
-        # 当前层号
+        # current level number
         args._current_hierarchy_level = hierarchy_level
 
         current_tuples = sum(len(set(table.tuple_ids)) for table in cur_tables)
@@ -205,7 +207,7 @@ def merge(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Tabl
 
 
 def merge_parallel(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
-    """层次合并，joblib 并行版"""
+    """Hierarchical merge, joblib parallel version"""
     cur_tables = [deepcopy(table) for table in tables]
     result_logger = getattr(args, 'result_logger', None)
     hierarchy_level = 1
@@ -254,10 +256,10 @@ def merge_parallel(tables: List[Table], all_embeddings: np.array, args: MainArgs
     return cur_tables[0]
 
 
-# 智能配对版本
+# smart pairing versions
 
 def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
-    """用 SmartTablePairing 替代随机 shuffle 的串行版合并。"""
+    """Serial merge using SmartTablePairing instead of random shuffle."""
     pairing = SmartTablePairing()
 
     cur_tables = [deepcopy(table) for table in tables]
@@ -274,7 +276,7 @@ def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args
         if result_logger is not None:
             result_logger.start_hierarchy_level(hierarchy_level, len(cur_tables), current_tuples)
 
-        # 智能配对
+        # smart pairing
         pairing_monitor = ResourceMonitor()
         pairing_monitor.start()
         pairs, unpaired = pairing.get_smart_pairing(cur_tables, all_embeddings)
@@ -286,7 +288,7 @@ def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args
             f"  Table pairing level {hierarchy_level}"
         )
 
-        # 按配对顺序合并
+        # merge in pairing order
         merge_monitor = ResourceMonitor()
         merge_monitor.start()
         new_tables = []
@@ -296,7 +298,7 @@ def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args
             new_table = merge_ij(table_i, table_j, all_embeddings, args)
             new_tables.append(new_table)
 
-        # 落单的表直接带过去
+        # carry over the leftover unpaired table directly
         for unpaired_idx in unpaired:
             new_tables.append(cur_tables[unpaired_idx])
         merge_usage = merge_monitor.stop()
@@ -321,7 +323,7 @@ def merge_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args
 
 
 def merge_parallel_with_smart_pairing(tables: List[Table], all_embeddings: np.array, args: MainArgs) -> Table:
-    """智能配对 + 并行合并版本"""
+    """Smart pairing + parallel merge version"""
     pairing = SmartTablePairing()
 
     cur_tables = [deepcopy(table) for table in tables]
@@ -349,14 +351,14 @@ def merge_parallel_with_smart_pairing(tables: List[Table], all_embeddings: np.ar
             f"  Table pairing level {hierarchy_level}"
         )
 
-        # 并行跑所有 pair
+        # run all pairs in parallel
         def fun(table_i_idx, table_j_idx):
             table_i = cur_tables[table_i_idx]
             table_j = cur_tables[table_j_idx]
             new_table = merge_ij(table_i, table_j, all_embeddings, args)
             return new_table
 
-        # 限制并发数，免得开太多进程
+        # limit concurrency to avoid spawning too many processes
         n_jobs = min(len(pairs), 8) if len(pairs) > 0 else 1
         merge_monitor = ResourceMonitor()
         merge_monitor.start()

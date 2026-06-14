@@ -1,19 +1,20 @@
 """
-命令行参数定义与解析（基于 tyro）。
+Command-line argument definition and parsing (based on tyro).
 
-`MainArgs` 是单一 dataclass，覆盖：数据路径、属性选择、合并、并行、智能配对、对比学习、
-模型选择、候选输出等所有主流程开关。`build_main_args()` 在解析后还做这些自动化：
-- 按 `data_name` 套用 `dataset_configs.py` 里的最优参数（用户显式给的不动）；
-- `model_type` → 本地权重路径自动映射；
-- HF cache 风格目录自动解析到 `snapshots/<rev>`；
-- 按模型类型设默认 `max_seq_length` / `batch_size`。
+`MainArgs` is a single dataclass covering all main-pipeline switches: data paths, attribute selection,
+merging, parallelism, smart pairing, contrastive learning, model selection, candidate output, etc.
+After parsing, `build_main_args()` also performs these automations:
+- apply the best parameters from `dataset_configs.py` by `data_name` (values explicitly given by the user are left untouched);
+- automatically map `model_type` -> local weight path;
+- automatically resolve HF-cache-style directories to `snapshots/<rev>`;
+- set default `max_seq_length` / `batch_size` by model type.
 """
 
 import os
 from dataclasses import dataclass
 
-# 这两个变量必须在 import HF / sentence-transformers 之前设置
-# 否则就会有偶发的网络探测，慢得难受
+# these two variables must be set before importing HF / sentence-transformers
+# otherwise there will be occasional network probes that are painfully slow
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
@@ -23,49 +24,49 @@ import tyro
 @dataclass
 class MainArgs:
     data_path: str = "data"
-    data_name: str = "Geo"  # 默认走 Geo，那个数据集已经调过参
+    data_name: str = "Geo"  # default to Geo, since that dataset is already tuned
 
     # selecting
     eer_flag: bool = True
-    col_sim_threshold: float = 0.8  # gamma；网格搜出来 0.8 是 Geo 上最好的
+    col_sim_threshold: float = 0.8  # gamma; grid search found 0.8 best on Geo
     selection_rate: float = 0.2  # r
-    manual_selected_attrs: str = ""  # 手工指定属性，逗号分隔；非空时跳过自动选择
-    data_sample_rate: float = 1.0  # 大数据集可以下采样
+    manual_selected_attrs: str = ""  # manually specified attributes, comma-separated; when non-empty, skip auto selection
+    data_sample_rate: float = 1.0  # large datasets can be downsampled
     # merging
     k: int = 1
-    min_dis: float = 0.5  # m，距离阈值
+    min_dis: float = 0.5  # m, the distance threshold
     # parallel
     run_in_parallel: bool = False
-    multi_gpu: bool = False  # 多卡 DataParallel
+    multi_gpu: bool = False  # multi-GPU DataParallel
 
-    # 智能表配对
+    # smart table pairing
     use_smart_pairing: bool = False
 
-    # 模型
-    # minilm 或 modernbert，路径默认本地
+    # model
+    # minilm or modernbert; the path defaults to a local one
     model_type: str = "modernbert"
-    lm_model_or_path: str = "model/modernbert"  # 离线路径；要在线就改成 HF repo
+    lm_model_or_path: str = "model/modernbert"  # offline path; change to an HF repo to go online
     device: str = "cuda"
     seed: int = 3407
     max_seq_length: int = 64
     batch_size: int = 512
 
 
-    # 是否自动套用每个数据集的最优参数
+    # whether to automatically apply the best parameters for each dataset
     use_dataset_config: bool = True
 
-    # 候选集
+    # candidate set
     output_candidates: bool = True
     candidates_output_dir: str = "candidates_output"
 
-    # 对比学习
+    # contrastive learning
     use_contrastive_learning: bool = False
     cl_training_data_dir: str = "llm_training_data"
     cl_epochs: int = 10
     cl_batch_size: int = 64
     cl_temperature: float = 0.07
     cl_learning_rate: float = 1e-5
-    cl_sample_rate: float = 1.0  # 超大数据集可以小一点
+    cl_sample_rate: float = 1.0  # can be smaller for very large datasets
     force_retrain: bool = False
     cl_model_cache_dir: str = "finetuned_models"
 
@@ -73,19 +74,19 @@ class MainArgs:
 def build_main_args():
     args = tyro.cli(MainArgs)
 
-    # 把数据集对应的最优参数自动覆盖上去
+    # automatically override with the best parameters for the dataset
     if args.use_dataset_config:
         try:
             from dataset_configs import get_dataset_config
 
             print(f"\n{'='*60}")
-            print(f"加载 {args.data_name} 的数据集配置")
+            print(f"Loading dataset config for {args.data_name}")
             print(f"{'='*60}")
 
             config = get_dataset_config(args.data_name)
 
-            # 只覆盖那些用户没在命令行手动改过的参数
-            # 判别方式：和 dataclass 默认值比较
+            # only override parameters the user did not manually change on the command line
+            # detection method: compare against the dataclass default values
             defaults = MainArgs()
 
             if args.eer_flag == defaults.eer_flag:
@@ -100,18 +101,18 @@ def build_main_args():
                 args.min_dis = config.min_dis
 
 
-            print(f"\n生效的 {args.data_name} 配置:")
+            print(f"\nEffective {args.data_name} config:")
             print(f"  - col_sim_threshold (γ) = {args.col_sim_threshold}")
             print(f"  - min_dis (m)           = {args.min_dis}")
             print(f"{'='*60}\n")
 
         except KeyError as e:
-            print(f"\n[警告] {e}")
-            print(f"[警告] 退回默认参数\n")
+            print(f"\n[Warning] {e}")
+            print(f"[Warning] falling back to default parameters\n")
         except ImportError:
-            print(f"\n[警告] dataset_configs.py 缺失，使用默认参数\n")
+            print(f"\n[Warning] dataset_configs.py is missing, using default parameters\n")
 
-    # model_type -> 本地路径，setup.sh 已经把权重下到 model/ 下
+    # model_type -> local path; setup.sh has already downloaded the weights into model/
     MODEL_MAPPING = {
         "minilm": "model/all-MiniLM-L12-v2",
         "modernbert": "model/modernbert",
@@ -119,8 +120,8 @@ def build_main_args():
         "modernbert-server": "/home/cjx/SAGEM/model/modernbert"
     }
 
-    # HF cache 风格目录的兼容：自动定位到 snapshots/<rev>
-    # 仓库里 model/* 可能直接是 blobs/refs/snapshots 这种目录
+    # compatibility with HF-cache-style directories: automatically locate snapshots/<rev>
+    # model/* in the repo may directly be a blobs/refs/snapshots-style directory
     from pathlib import Path
 
     def _resolve_hf_snapshot_dir(p: str) -> str:
@@ -131,13 +132,13 @@ def build_main_args():
             snaps = base / "snapshots"
             refs_main = base / "refs" / "main"
             if snaps.is_dir():
-                # 优先用 refs/main 指的那个 revision
+                # prefer the revision pointed to by refs/main
                 if refs_main.is_file():
                     rev = refs_main.read_text().strip()
                     cand = snaps / rev
                     if cand.is_dir():
                         return str(cand)
-                # 没有 refs/main 就取 snapshots 下任意一个目录
+                # if there is no refs/main, take any directory under snapshots
                 subdirs = sorted([d for d in snaps.iterdir() if d.is_dir()])
                 if subdirs:
                     return str(subdirs[-1])
@@ -145,20 +146,20 @@ def build_main_args():
         except Exception:
             return p
 
-    # 用户给了 model_type 但没自己写路径时，按 mapping 套
-    # 自己写了路径就以用户的为准
+    # when the user gives model_type but does not write a path, apply the mapping
+    # if a path was written explicitly, the user's value takes precedence
     defaults = MainArgs()
     user_specified_path = args.lm_model_or_path != defaults.lm_model_or_path
     if not user_specified_path and (args.model_type != defaults.model_type or args.lm_model_or_path == defaults.lm_model_or_path):
         if args.model_type in MODEL_MAPPING:
             args.lm_model_or_path = MODEL_MAPPING[args.model_type]
         else:
-            print(f"\n[警告] 未知 model_type '{args.model_type}'")
-            print(f"[警告] 可选: {list(MODEL_MAPPING.keys())}")
-            print(f"[警告] 沿用默认: {args.lm_model_or_path}\n")
+            print(f"\n[Warning] unknown model_type '{args.model_type}'")
+            print(f"[Warning] options: {list(MODEL_MAPPING.keys())}")
+            print(f"[Warning] keeping default: {args.lm_model_or_path}\n")
 
-    # 老路径兼容：早期是放在 models/ 下，现在统一 model/
-    # 脚本里如果还在传 models/...，且本地不存在，就回退到 model/
+    # legacy path compatibility: early on these were under models/, now unified under model/
+    # if a script still passes models/... and it does not exist locally, fall back to model/
     from pathlib import Path as _Path
 
     legacy_map = {
@@ -178,23 +179,23 @@ def build_main_args():
         if p in legacy_map and (not _Path(p).exists() or p.startswith("/home/cjx/SAGEM/model/")):
             args.lm_model_or_path = legacy_map[p]
 
-    # HF cache 风格的目录，再解析一次
+    # resolve HF-cache-style directories once more
     args.lm_model_or_path = _resolve_hf_snapshot_dir(args.lm_model_or_path)
 
-    # 把最终生效的本地路径打出来，免得用户以为走了线上
-    print(f"\n模型选择: {args.model_type}")
-    print(f"   -> 路径: {args.lm_model_or_path}\n")
+    # print the final effective local path, so the user does not think it went online
+    print(f"\nModel selection: {args.model_type}")
+    print(f"   -> path: {args.lm_model_or_path}\n")
 
-    # 按模型类型套推荐的 max_seq_length / batch_size
-    # 用户显式指定过的不动
+    # apply the recommended max_seq_length / batch_size by model type
+    # values explicitly specified by the user are left untouched
     MODEL_PARAMS = {
         "minilm": {
             "max_seq_length": 64,
             "batch_size": 512,
         },
         "modernbert": {
-            "max_seq_length": 256,   # ModernBERT 支持很长（最大 8192）
-            "batch_size": 256,       # 序列变长就得收一下 batch
+            "max_seq_length": 256,   # ModernBERT supports very long sequences (up to 8192)
+            "batch_size": 256,       # longer sequences require a smaller batch
         },
         "modernbert-server": {
             "max_seq_length": 256,
@@ -217,7 +218,7 @@ def build_main_args():
             params_changed.append(f"batch_size: {old_val} -> {args.batch_size}")
 
         if params_changed:
-            print(f"按 {args.model_type} 自动调整:")
+            print(f"Auto-adjusted for {args.model_type}:")
             for change in params_changed:
                 print(f"   - {change}")
             print()

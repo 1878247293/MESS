@@ -1,8 +1,8 @@
 """
-loguru 日志封装。
+loguru logging wrapper.
 
-init_logger 同时挂两个 handler：终端只输出 INFO+ 且屏蔽 API 调试噪声，文件保留
-DEBUG 全量。`log` / `log_args` / `log_time` 是 INFO 级薄包装。
+init_logger attaches two handlers: the terminal outputs only INFO+ and suppresses API debug noise, while
+the file keeps the full DEBUG output. `log` / `log_args` / `log_time` are thin INFO-level wrappers.
 """
 
 import time
@@ -13,17 +13,17 @@ from loguru import logger
 
 def init_logger(file_name):
     """
-    初始化 loguru。
-    控制台只走 INFO 以上，文件保留 DEBUG 全量。
+    Initialize loguru.
+    The console shows INFO and above; the file keeps the full DEBUG output.
     """
     file_name = f"logs/{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime()) }_{file_name}.log"
 
-    # 干掉默认 stdout handler
+    # remove the default stdout handler
     logger.remove()
 
-    # 控制台只想看关键进度，把 API 调试这种噪声过滤掉
+    # the console only wants key progress, so filter out noise such as API debug logs
     def terminal_filter(record):
-        # DEBUG 太碎，ERROR 仅写文件
+        # DEBUG is too granular; ERROR is written to file only
         if record["level"].name in ["DEBUG", "ERROR"]:
             return False
 
@@ -31,14 +31,14 @@ def init_logger(file_name):
 
         message = str(record.get("message", ""))
 
-        # 屏蔽 API 详情类日志
-        api_keywords = ["API 响应:", "完整响应对象:", "Prompt 前100字符:",
-                       "响应 choices", "批量处理: 任务", "批量解析:"]
+        # suppress API-detail logs
+        api_keywords = ["API response:", "Full response object:", "Prompt first 100 chars:",
+                       "Response choices", "Batch processing: task", "Batch parsing:"]
         if any(keyword in message for keyword in api_keywords):
             return False
 
-        # 单批失败的详情也别打到屏幕上，只看汇总
-        if "⚠️  批次" in message and "处理失败" in message:
+        # do not print per-batch failure details to the screen either; show only the summary
+        if "⚠️  batch" in message and "processing failed" in message:
             return False
 
         return True
